@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AppCloud · Download Hub</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-wrapper" id="appRoot">
+
+  <!-- ================= AUTH SCREEN ================= -->
+  <div id="authScreen">
+    <div class="info-badge">
+      <h1 class="company-name">AppCloud Kenya Ltd</h1>
+      <p>
+        <strong>📍 Nairobi Tower Palace, 10th floor, Room 21.</strong><br>
+        App owners pay us to boost their downloads — higher install numbers mean more Play Store revenue for them.
+        We source clients to install apps to <strong>cloud storage</strong> (not your device), and we pay you for each completed install.
+        <br><br>
+        <strong>Create an account → get your key → start earning and withdrawing.</strong>
+      </p>
+    </div>
+
+    <div class="auth-box">
+      <div class="auth-tabs">
+        <div class="auth-tab active" data-tab="login">Log In</div>
+        <div class="auth-tab" data-tab="register">Create Account</div>
+      </div>
+
+      <!-- LOGIN -->
+      <div id="loginForm">
+        <label>Email</label>
+        <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="email">
+        <label class="mt-2">Password</label>
+        <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
+        <button class="btn btn-primary w-100 mt-3" id="loginBtn">Log In</button>
+      </div>
+
+      <!-- REGISTER -->
+      <div id="registerForm" class="hidden">
+        <label>Full Name</label>
+        <input type="text" id="regName" placeholder="John Doe">
+
+        <label class="mt-2">Email</label>
+        <input type="email" id="regEmail" placeholder="you@example.com">
+
+        <label class="mt-2">Phone (M-Pesa)</label>
+        <div class="phone-input">
+          <span class="phone-prefix">+254</span>
+          <input type="tel" id="regPhone" placeholder="712345678" maxlength="9" inputmode="numeric">
+        </div>
+
+        <label class="mt-2">Password</label>
+        <input type="password" id="regPassword" placeholder="min 6 characters">
+
+        <label class="mt-2">Referral Email (optional)</label>
+        <input type="email" id="regReferral" placeholder="friend@example.com">
+
+        <button class="btn btn-primary w-100 mt-3" id="registerBtn">Create Account</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= LEVEL SELECTION ================= -->
+  <div id="levelScreen" class="hidden">
+    <h2 class="mb-2">Choose your starting level</h2>
+    <p class="text-muted mb-3">Click a level to buy its key. Each app pays Ksh 10.</p>
+    <div class="grid-2" id="levelGrid"></div>
+
+    <!-- Key purchase form (revealed when a level is clicked) -->
+    <div id="keyPurchaseBox" class="hidden mt-3">
+      <div class="divider"></div>
+      <h3>Purchase Key — <span id="selectedLevelName">Level 1</span></h3>
+      <div class="info-badge mt-2 mb-2">
+        <p><strong>Pay via M-Pesa:</strong> Paybill <strong id="displayPaybill">400200</strong> · Account <strong id="displayAcc">APPCLOUD</strong> · Amount <strong id="displayAmount">Ksh 1,000</strong></p>
+      </div>
+      <label>M-Pesa Confirmation Code</label>
+      <input type="text" id="mpesaCode" placeholder="e.g. QW45RT67Y9" maxlength="10" style="text-transform:uppercase">
+      <p class="text-muted mt-1" style="font-size:0.78rem;">Format: 10 characters — letters & numbers (Kenyan M-Pesa code)</p>
+      <button class="btn btn-primary w-100 mt-3" id="submitKeyBtn">Submit Key Payment</button>
+    </div>
+
+    <button class="btn w-100 mt-3" id="skipLevelBtn">Skip for now (browse only)</button>
+  </div>
+
+  <!-- ================= USER DASHBOARD ================= -->
+  <div id="userDashboard" class="hidden">
+    <!-- Meta real-app scrolling strip -->
+    <div class="app-strip-section">
+      <div class="app-strip" id="appStrip"></div>
+      <div class="app-strip app-strip-2" id="appStrip2"></div>
+    </div>
+
+    <div class="level-info">
+      <span class="level-badge" id="userLevelDisplay">Level 1</span>
+      <span class="remaining-badge" id="remainingAppsDisplay">5 / 5 apps left</span>
+      <span class="balance-badge" id="userBalanceDisplay">Ksh 0.00</span>
+    </div>
+
+    <!-- Pending verification banner -->
+    <div id="pendingBanner" class="pending-banner hidden">
+      <span>⏳ Your key payment is awaiting admin verification. Apps will unlock once approved.</span>
+    </div>
+
+    <div class="app-list" id="appListContainer"></div>
+
+    <div class="grid-2 mt-3">
+      
+            <div class="admin-card">
+        <h4>💰 Withdraw Earnings</h4>
+        <p class="text-muted mb-2">Withdrawals processed within 24 hrs (Mon–Fri). Min Ksh 100.</p>
+        <label>Amount (Ksh)</label>
+        <input type="number" id="withdrawAmount" placeholder="500">
+        <label class="mt-2">M-Pesa Number</label>
+        <div class="phone-input">
+          <span class="phone-prefix">+254</span>
+          <input type="tel" id="withdrawNumber" placeholder="712345678" maxlength="9" inputmode="numeric">
+        </div>
+        <label class="mt-2">Full Name (as per M-Pesa)</label>
+        <input type="text" id="withdrawName" placeholder="John Doe">
+        <button class="btn btn-success w-100 mt-2" id="requestWithdrawBtn">Request Withdrawal</button>
+
+        <button class="btn w-100 mt-2" id="toggleWithdrawHistory">📜 View Withdrawal History</button>
+
+        <div id="withdrawHistoryBox" class="hidden mt-2">
+          <div class="admin-list" id="userWithdrawHistory">
+            <div class="log-row text-muted">No withdrawals yet</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="admin-card">
+        <h4>🔗 Your Referral</h4>
+        <p class="text-muted mb-2">Earn <strong>30%</strong> of every key purchase made by people you refer.</p>
+        <label>Your Referral Link</label>
+        <input type="text" id="referralLink" readonly>
+        <label class="mt-2">Referral Earnings</label>
+        <input type="text" id="referralEarnings" readonly value="Ksh 0.00">
+         <div class="mt-2 text-muted" style="font-size:0.8rem;">
+         Referred users: <span id="referredCount">0</span>
+         · Pending: <span id="pendingReferralAmount">Ksh 0.00</span>
+      </div>
+      </div>
+    </div>
+
+    <div class="flex-row mt-3" style="justify-content:space-between;">
+      <button class="btn" id="logoutUserBtn">Log Out</button>
+      <div class="flex-row">
+        <button class="btn btn-primary hidden" id="buyKeyBtn">🔑 Buy Key</button>
+        <button class="btn btn-admin" id="upgradeLevelBtn">⬆ Upgrade Level</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= UPGRADE ================= -->
+  <div id="upgradeScreen" class="hidden">
+    <div class="flex-row mb-2" style="justify-content:space-between;">
+      <h2>Upgrade your level</h2>
+      <button class="btn" id="backFromUpgrade">← Back</button>
+    </div>
+    <div class="grid-2" id="upgradeGrid"></div>
+
+    <div id="upgradePurchaseBox" class="hidden mt-3">
+      <div class="divider"></div>
+      <h3>Pay for upgrade — <span id="upgradeLevelName">Level 2</span></h3>
+      <div class="info-badge mt-2 mb-2">
+        <p>Paybill <strong id="upgradePaybill">400200</strong> · Account <strong id="upgradeAcc">APPCLOUD</strong> · Amount <strong id="upgradeAmount">Ksh 2,000</strong></p>
+      </div>
+      <label>M-Pesa Confirmation Code</label>
+      <input type="text" id="upgradeMpesaCode" placeholder="QW45RT67Y9" maxlength="10" style="text-transform:uppercase">
+      <button class="btn btn-primary w-100 mt-2" id="submitUpgradeBtn">Submit Upgrade Payment</button>
+    </div>
+  </div>
+
+  <!-- ================= ADMIN ================= -->
+  <div id="adminPanel" class="hidden">
+    <div class="flex-row mb-3" style="justify-content:space-between;">
+      <h2>Admin Dashboard</h2>
+      <button class="btn" id="logoutAdminBtn">Close</button>
+    </div>
+
+    <div class="flex-row mb-2" style="gap:8px;">
+      <button class="btn btn-sm active" data-admin-tab="overview">Overview</button>
+      <button class="btn btn-sm" data-admin-tab="users">Users</button>
+      <button class="btn btn-sm" data-admin-tab="keys">Key Approvals</button>
+      <button class="btn btn-sm" data-admin-tab="transactions">Transactions</button>
+      <button class="btn btn-sm" data-admin-tab="withdrawals">Withdrawals</button>
+      <button class="btn btn-sm" data-admin-tab="referrals">Referrals</button>
+      <button class="btn btn-sm" data-admin-tab="settings">Settings</button>
+    </div>
+
+    <div class="admin-panel">
+      <!-- OVERVIEW -->
+      <div id="adminOverview">
+        <div class="admin-grid">
+          <div class="admin-card">
+            <h4>📊 Platform Stats</h4>
+            <div class="admin-list">
+              <div class="log-row">Total Users: <strong id="statUsers">0</strong></div>
+              <div class="log-row">Total Keys Sold: <strong id="statKeys">0</strong></div>
+              <div class="log-row">Total Revenue: <strong id="statRevenue">Ksh 0</strong></div>
+              <div class="log-row">Pending Withdrawals: <strong id="statWithdrawals">0</strong></div>
+              <div class="log-row">Pending Keys: <strong id="statPendingKeys">0</strong></div>
+            </div>
+          </div>
+          <div class="admin-card">
+            <h4>👤 Recent Logins</h4>
+            <div class="admin-list" id="adminUserLogins"></div>
+          </div>
+          <div class="admin-card">
+            <h4>💳 M-Pesa Codes Entered</h4>
+            <div class="admin-list" id="adminMpesaCodes"></div>
+          </div>
+          <div class="admin-card">
+            <h4>📋 Pending Referral Approvals</h4>
+            <div class="admin-list" id="adminPendingReferrals"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- USERS -->
+      <div id="adminUsers" class="hidden">
+        <h3 class="mb-2">All Users</h3>
+        <div id="adminUsersList" class="admin-list"></div>
+      </div>
+
+      <!-- KEY APPROVALS -->
+      <div id="adminKeys" class="hidden">
+        <h3 class="mb-2">Key Purchase Approvals</h3>
+        <p class="text-muted mb-2">Verify the M-Pesa code matches before approving. Apps unlock after approval.</p>
+        <div id="adminKeysList" class="admin-list"></div>
+      </div>
+
+      <!-- TRANSACTIONS -->
+      <div id="adminTransactions" class="hidden">
+        <h3 class="mb-2">All Transactions</h3>
+        <div id="adminTransactionsList" class="admin-list"></div>
+      </div>
+
+      <!-- WITHDRAWALS -->
+      <div id="adminWithdrawals" class="hidden">
+        <h3 class="mb-2">Withdrawal Requests</h3>
+        <div id="adminWithdrawalsList" class="admin-list"></div>
+      </div>
+
+      <!-- REFERRALS -->
+      <div id="adminReferrals" class="hidden">
+        <h3 class="mb-2">Referral Approvals (30%)</h3>
+        <div id="adminReferralsList" class="admin-list"></div>
+      </div>
+
+      <!-- SETTINGS -->
+      <div id="adminSettings" class="hidden">
+        <h3 class="mb-2">Payment Settings</h3>
+        <label>Paybill Number</label>
+        <input type="text" id="paybillInput" placeholder="400200">
+        <label class="mt-2">Account Name</label>
+        <input type="text" id="accInput" placeholder="APPCLOUD">
+        <button class="btn btn-primary mt-2" id="savePaybillBtn">Save Settings</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
