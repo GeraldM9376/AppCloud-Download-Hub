@@ -263,11 +263,20 @@
   </div>
 </div>
 
-<!-- Firebase SDK + config -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
   import { getAuth } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
   import { getFirestore } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+  import {
+    createUserWithEmailAndPassword,
+    signInWithEmailAndPassword,
+    signOut,
+    onAuthStateChanged
+  } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
+  import {
+    doc, getDoc, setDoc, updateDoc, deleteDoc,
+    collection, addDoc, getDocs, query, where, writeBatch, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyAZ3YSXC_tVY4UHGpoKN3QVoi9nHuNROZI",
@@ -278,17 +287,128 @@
     appId: "1:74216770225:web:3200c9ba24de0131a7f090"
   };
 
-  const app = initializeApp(firebaseConfig);
+  const app  = initializeApp(firebaseConfig);
   const auth = getAuth(app);
-  const db = getFirestore(app);
+  const db   = getFirestore(app);
+  const ADMIN_EMAIL = 'signin@gmail.com';
 
-  // Expose to app.js (plain script) via window
-  window.firebaseAuth = auth;
-  window.firebaseDb = db;
+  // ---- Expose everything app.js needs on window.firebase ----
+  window.firebase = {
+    app, auth, db, ADMIN_EMAIL,
+
+    // Auth
+    register: async (email, password, profile) => {
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      await setDoc(doc(db, 'users', cred.user.uid), {
+        uid: cred.user.uid,
+        email,
+        name: profile.name,
+        phone: profile.phone,
+        level: 1,
+        hasKey: false,
+        keyApproved: false,
+        appsInstalledToday: 0,
+        installedToday: [],
+        lastInstallDate: new Date().toDateString(),
+        balance: 0,
+        referralEarnings: 0,
+        referredBy: profile.referredBy || null,
+        status: 'Active',
+        isAdmin: email === ADMIN_EMAIL,
+        createdAt: serverTimestamp()
+      });
+      return cred.user;
+    },
+    login: (email, password) => signInWithEmailAndPassword(auth, email, password),
+    logout: () => signOut(auth),
+    onAuth: (cb) => onAuthStateChanged(auth, cb),
+    currentUser: () => auth.currentUser,
+
+    // Users
+    getUser: async (uid) => {
+      const s = await getDoc(doc(db, 'users', uid));
+      return s.exists() ? { id: s.id, ...s.data() } : null;
+    },
+    getUserByEmail: async (email) => {
+      const q = query(collection(db, 'users'), where('email', '==', email));
+      const s = await getDocs(q);
+      if (s.empty) return null;
+      const d = s.docs[0];
+      return { id: d.id, ...d.data() };
+    },
+    updateUser: (uid, patch) => updateDoc(doc(db, 'users', uid), patch),
+    allUsers: async () => {
+      const s = await getDocs(collection(db, 'users'));
+      return s.docs.map(d => ({ id: d.id, ...d.data() }));
+    },
+
+    // Transactions
+    addTx: (tx) => addDoc(collection(db, 'transactions'), { ...tx, createdAt: serverTimestamp() }),
+    userTxs: async (uid) => {
+      const s = await getDocs(query(collection(db, 'transactions'), where('userId', '==', uid)));
+      return s.docs.map(d => ({ id: d.id, ...d.data() }));
+    },
+    allTxs: async () => {
+      const s = await getDocs(collection(db, 'transactions'));
+      return s.docs.map(d => ({ id: d.id, ...d.data() }));
+    },
+    updateTx: (id, patch) => updateDoc(doc(db, 'transactions', id), patch),
+
+    // Withdrawals
+    addWithdraw: (w) => addDoc(collection(db, 'withdrawals'), { ...w, createdAt: serverTimestamp() }),
+    userWithdrawals: async (uid) => {
+      const s = await getDocs(query(collection(db, 'withdrawals'), where('userId', '==', uid)));
+      return s.docs.map(d => ({ id: d.id, ...d.data() }));
+    },
+    allWithdrawals: async () => {
+      const s = await getDocs(collection(db, 'withdrawals'));
+      return s.docs.map(d => ({ id: d.id, ...d.data() }));
+    },
+    updateWithdraw: (id, patch) => updateDoc(doc(db, 'withdrawals', id), patch),
+
+    // Referrals
+    addRef: (r) => addDoc(collection(db, 'referrals'), { ...r, createdAt: serverTimestamp() }),
+    userRefs: async (uid) => {
+      const q1 = await getDocs(query(collection(db, 'referrals'), where('referrerId', '==', uid)));
+      const q2 = await getDocs(query(collection(db, 'referrals'), where('referredUserId', '==', uid)));
+      const seen = new Set();
+      return [...q1.docs, ...q2.docs]
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(r => { if (seen.has(r.id)) return false; seen.add(r.id); return true; });
+    },
+    allRefs: async () => {
+      const s = await getDocs(collection(db, 'referrals'));
+      return s.docs.map(d => ({ id: d.id, ...d.data() }));
+    },
+    updateRef: (id, patch) => updateDoc(doc(db, 'referrals', id), patch),
+
+    // Settings
+    getSettings: async () => {
+      const s = await getDoc(doc(db, 'settings', 'config'));
+      return s.exists() ? s.data() : { paybill: '400200', account: 'APPCLOUD' };
+    },
+    saveSettings: (patch) => setDoc(doc(db, 'settings', 'config'), patch, { merge: true }),
+
+    // Delete user + all records
+    deleteUser: async (uid) => {
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'users', uid));
+      const txS = await getDocs(query(collection(db, 'transactions'), where('userId', '==', uid)));
+      txS.forEach(d => batch.delete(d.ref));
+      const wS = await getDocs(query(collection(db, 'withdrawals'), where('userId', '==', uid)));
+      wS.forEach(d => batch.delete(d.ref));
+      const r1 = await getDocs(query(collection(db, 'referrals'), where('referrerId', '==', uid)));
+      const r2 = await getDocs(query(collection(db, 'referrals'), where('referredUserId', '==', uid)));
+      [...r1.docs, ...r2.docs].forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    }
+  };
+
   window.firebaseReady = true;
   window.dispatchEvent(new Event('firebase-ready'));
+  console.log('[Firebase] Ready.');
 </script>
 
-<script src="app.js"></script>
-</body>  
+<script src="app.js" defer></script>
+</body>
 </html>

@@ -1,71 +1,38 @@
 /* ================================================================
-   AppCloud · Download Hub — app.js
+   AppCloud · Download Hub — app.js  (Firebase + real brand icons)
    ================================================================ */
 (function () {
   'use strict';
 
   // ============================================================
-  // STORAGE
+  // WAIT FOR FIREBASE
   // ============================================================
-  const DB = {
-    key: 'appcloud_db_v1',
-    load() {
-      try {
-        const raw = localStorage.getItem(this.key);
-        return raw ? JSON.parse(raw) : null;
-      } catch { return null; }
-    },
-    save(data) { try { localStorage.setItem(this.key, JSON.stringify(data)); } catch {} },
-    reset() { localStorage.removeItem(this.key); }
-  };
-
-  const ADMIN_EMAIL = 'signin@gmail.com';
-
-  const DEFAULT_DB = {
-    users: [
-      {
-        id: 'u_admin_demo',
-        name: 'Admin',
-        email: ADMIN_EMAIL,
-        phone: '712345678',
-        password: 'Gm08202118269',
-        level: 1,
-        hasKey: false,
-        keyApproved: false,
-        appsInstalledToday: 0,
-        installedToday: [],
-        lastInstallDate: new Date().toDateString(),
-        balance: 0,
-        referralEarnings: 0,
-        referredBy: null,
-        status: 'Active',
-        isAdmin: true,
-        createdAt: Date.now()
-      }
-    ],
-    transactions: [],
-    withdrawals: [],
-    referrals: [],
-    logins: [],
-    settings: { paybill: '400200', account: 'APPCLOUD' }
-  };
-
-  let db = DB.load();
-  if (!db) { db = JSON.parse(JSON.stringify(DEFAULT_DB)); DB.save(db); }
-  function saveDB() { DB.save(db); }
+  function firebaseReady() {
+    return new Promise(resolve => {
+      if (window.firebaseReady && window.firebase) return resolve();
+      window.addEventListener('firebase-ready', () => resolve(), { once: true });
+    });
+  }
 
   // ============================================================
   // STATE
   // ============================================================
   const state = {
     currentUser: null,
-    currentUserId: null,
     isAdmin: false,
     activeInstallations: {},
     selectedLevel: 1,
     selectedUpgradeLevel: null,
     dailyApps: null,
-    basket: null
+    basket: null,
+    allUsers: [],
+    allTransactions: [],
+    allWithdrawals: [],
+    allReferrals: [],
+    userTxs: [],
+    userWithdrawals: [],
+    userReferrals: [],
+    settings: { paybill: '400200', account: 'APPCLOUD' }
   };
 
   const LEVELS = {
@@ -92,31 +59,106 @@
       'MySQL','Redis','Docker','Kubernetes','Terraform','Ansible','Jenkins','CircleCI','Postman','Insomnia',
       'Swagger','GraphQL','Apollo','Prisma','Drizzle','NestJS','Next.js','Nuxt','SvelteKit','Astro'
     ];
-
-    const icons = [
-      '💬','📸','🎵','📘','▶️','🎧','🎬','🐦','👻','✈️',
-      '📌','🤖','🎮','🟣','💼','📹','📝','🎨','🖼️','📦',
-      '🗂️','📧','🗺️','🚗','⚡','🏠','🏨','🛒','🏷️','🛍️',
-      '💳','💠','🪙','🔵','🐙','🦊','🛡️','📲','🔴','🏦',
-      '💚','🌐','🌊','🧭','🎭','🦁','🎞️','🧸','🎙️','📖',
-      '📚','🦉','🎓','🎯','✍️'
-    ];
-
     const apps = [];
     let counter = 0;
     for (let pass = 1; pass <= 10; pass++) {
-      baseNames.forEach((base, i) => {
+      baseNames.forEach(base => {
         counter++;
-        const icon = icons[(counter + i + pass) % icons.length];
         const name = pass === 1 ? base : `${base} ${pass}`;
-        apps.push({ id: 'app' + counter, name, payout: 10, icon });
+        apps.push({ id: 'app' + counter, name, payout: 10 });
       });
     }
     return apps;
   })();
 
   // ============================================================
-  // DAILY USER-SPECIFIC APP SET
+  // BRAND DOMAINS — maps app name → domain for real logo
+  // ============================================================
+  const BRAND_DOMAINS = {
+    'WhatsApp': 'whatsapp.com', 'Instagram': 'instagram.com', 'TikTok': 'tiktok.com',
+    'Facebook': 'facebook.com', 'YouTube': 'youtube.com', 'Spotify': 'spotify.com',
+    'Netflix': 'netflix.com', 'X': 'x.com', 'Snapchat': 'snapchat.com',
+    'Telegram': 'telegram.org', 'Pinterest': 'pinterest.com', 'Reddit': 'reddit.com',
+    'Discord': 'discord.com', 'Twitch': 'twitch.tv', 'LinkedIn': 'linkedin.com',
+    'Zoom': 'zoom.us', 'Slack': 'slack.com', 'Notion': 'notion.so',
+    'Figma': 'figma.com', 'Canva': 'canva.com', 'Dropbox': 'dropbox.com',
+    'Google Drive': 'drive.google.com', 'Gmail': 'mail.google.com', 'Maps': 'maps.google.com',
+    'Uber': 'uber.com', 'Bolt': 'bolt.eu', 'Airbnb': 'airbnb.com',
+    'Booking': 'booking.com', 'Amazon': 'amazon.com', 'eBay': 'ebay.com',
+    'AliExpress': 'aliexpress.com', 'Shopify': 'shopify.com', 'PayPal': 'paypal.com',
+    'Revolut': 'revolut.com', 'Binance': 'binance.com', 'Coinbase': 'coinbase.com',
+    'Kraken': 'kraken.com', 'MetaMask': 'metamask.io', 'Trust Wallet': 'trustwallet.com',
+    'M-Pesa': 'safaricom.co.ke', 'Airtel Money': 'airtel.co.ke',
+    'Equity Bank': 'equitygroupholdings.com', 'KCB': 'kcbgroup.com',
+    'Chrome': 'google.com', 'Firefox': 'mozilla.org', 'Edge': 'microsoft.com',
+    'Safari': 'apple.com', 'Opera': 'opera.com', 'Brave': 'brave.com',
+    'VLC': 'videolan.org', 'Audible': 'audible.com', 'Kindle': 'amazon.com',
+    'Goodreads': 'goodreads.com', 'Duolingo': 'duolingo.com', 'Khan Academy': 'khanacademy.org',
+    'Coursera': 'coursera.org', 'Udemy': 'udemy.com', 'Skillshare': 'skillshare.com',
+    'Medium': 'medium.com', 'Substack': 'substack.com', 'Quora': 'quora.com',
+    'Stack Overflow': 'stackoverflow.com', 'GitHub': 'github.com', 'GitLab': 'gitlab.com',
+    'Bitbucket': 'bitbucket.org', 'Vercel': 'vercel.com', 'Netlify': 'netlify.com',
+    'Cloudflare': 'cloudflare.com', 'AWS': 'aws.amazon.com', 'Azure': 'azure.microsoft.com',
+    'GCP': 'cloud.google.com', 'DigitalOcean': 'digitalocean.com', 'Linode': 'linode.com',
+    'Heroku': 'heroku.com', 'Render': 'render.com', 'Railway': 'railway.app',
+    'Supabase': 'supabase.com', 'Firebase': 'firebase.google.com', 'MongoDB': 'mongodb.com',
+    'Postgres': 'postgresql.org', 'MySQL': 'mysql.com', 'Redis': 'redis.io',
+    'Docker': 'docker.com', 'Kubernetes': 'kubernetes.io', 'Terraform': 'terraform.io',
+    'Ansible': 'ansible.com', 'Jenkins': 'jenkins.io', 'CircleCI': 'circleci.com',
+    'Postman': 'postman.com', 'Insomnia': 'insomnia.rest', 'Swagger': 'swagger.io',
+    'GraphQL': 'graphql.org', 'Apollo': 'apollographql.com', 'Prisma': 'prisma.io',
+    'Drizzle': 'orm.drizzle.team', 'NestJS': 'nestjs.com', 'Next.js': 'nextjs.org',
+    'Nuxt': 'nuxt.com', 'SvelteKit': 'kit.svelte.dev', 'Astro': 'astro.build',
+    'Vite': 'vitejs.dev', 'Webpack': 'webpack.js.org', 'Rollup': 'rollupjs.org',
+    'Parcel': 'parceljs.org', 'esbuild': 'esbuild.github.io', 'Bun': 'bun.sh',
+    'Deno': 'deno.com', 'Node.js': 'nodejs.org', 'React': 'react.dev',
+    'Vue': 'vuejs.org', 'Angular': 'angular.io', 'Svelte': 'svelte.dev',
+    'Solid': 'solidjs.com', 'Qwik': 'qwik.dev', 'Preact': 'preactjs.com',
+    'Lit': 'lit.dev', 'Alpine': 'alpinejs.dev', 'HTMX': 'htmx.org',
+    'Tailwind': 'tailwindcss.com', 'Bootstrap': 'getbootstrap.com', 'Material UI': 'mui.com',
+    'Chakra UI': 'chakra-ui.com', 'Ant Design': 'ant.design', 'Mantine': 'mantine.dev',
+    'Radix': 'radix-ui.com', 'Shadcn UI': 'ui.shadcn.com', 'Headless UI': 'headlessui.com',
+    'Framer Motion': 'framer.com', 'GSAP': 'gsap.com', 'Three.js': 'threejs.org',
+    'Babylon.js': 'babylonjs.com', 'D3.js': 'd3js.org', 'Chart.js': 'chartjs.org',
+    'ECharts': 'echarts.apache.org', 'Recharts': 'recharts.org', 'Mapbox': 'mapbox.com',
+    'Leaflet': 'leafletjs.com', 'OpenLayers': 'openlayers.org', 'Turf.js': 'turfjs.org',
+    'Socket.io': 'socket.io', 'Pusher': 'pusher.com', 'Ably': 'ably.com',
+    'Amplify': 'aws.amazon.com', 'Appwrite': 'appwrite.io', 'Nhost': 'nhost.io',
+    'PocketBase': 'pocketbase.io', 'Directus': 'directus.io', 'Strapi': 'strapi.io',
+    'Sanity': 'sanity.io', 'Contentful': 'contentful.com', 'Prismic': 'prismic.io',
+    'Storyblok': 'storyblok.com', 'WordPress': 'wordpress.org', 'Webflow': 'webflow.com',
+    'Framer': 'framer.com', 'Wix': 'wix.com', 'Squarespace': 'squarespace.com',
+    'WooCommerce': 'woocommerce.com', 'Magento': 'magento.com', 'BigCommerce': 'bigcommerce.com',
+    'PrestaShop': 'prestashop.com', 'OpenCart': 'opencart.com', 'Stripe': 'stripe.com',
+    'Razorpay': 'razorpay.com', 'Paystack': 'paystack.com', 'Flutterwave': 'flutterwave.com',
+    'Pesapal': 'pesapal.com', 'IntaSend': 'intasend.com', 'PayU': 'payu.com',
+    'Adyen': 'adyen.com', 'Klarna': 'klarna.com', 'Affirm': 'affirm.com',
+    'Afterpay': 'afterpay.com', 'Zip': 'zip.co', 'Wave': 'waveapps.com',
+    'Chipper Cash': 'chippercash.com', 'Kuda': 'kuda.com', 'Monzo': 'monzo.com',
+    'N26': 'n26.com', 'Wise': 'wise.com', 'Payoneer': 'payoneer.com',
+    'Skrill': 'skrill.com', 'Neteller': 'neteller.com', 'Payeer': 'payeer.com',
+    'AdvCash': 'advcash.com'
+  };
+
+  function getAppIconUrl(appName) {
+    const base = appName.replace(/\s\d+$/, '').trim();
+    const domain = BRAND_DOMAINS[base];
+    if (domain) return `https://logo.clearbit.com/${domain}`;
+    const guess = base.toLowerCase().replace(/\s/g, '') + '.com';
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(guess)}&sz=128`;
+  }
+
+  function iconImg(appName, size = 44) {
+    const url = getAppIconUrl(appName);
+    const guess = appName.replace(/\s\d+$/, '').trim().toLowerCase().replace(/\s/g, '') + '.com';
+    const fallback = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(guess)}&sz=128`;
+    return `<img src="${url}" alt="${appName}" width="${size}" height="${size}"
+      style="width:${size}px;height:${size}px;border-radius:12px;object-fit:contain;"
+      onerror="this.onerror=null;this.src='${fallback}';this.style.opacity='0.7';">`;
+  }
+
+  // ============================================================
+  // SEEDED SHUFFLE
   // ============================================================
   function hashString(str) {
     let h = 2166136261;
@@ -151,11 +193,8 @@
   function getDailyAppsForUser(user) {
     if (!user) return [];
     const seed = hashString(`${user.email}|${getTodayKey()}`);
-    const shuffled = seededShuffle(APP_POOL, seed);
-    return shuffled.slice(0, 200);
+    return seededShuffle(APP_POOL, seed).slice(0, 200);
   }
-
-  const APPS = APP_POOL;
 
   // ============================================================
   // DOM
@@ -189,6 +228,13 @@
     return /^[A-Z0-9]{10}$/.test(String(code || '').trim().toUpperCase());
   }
 
+  function tsToMs(ts) {
+    if (!ts) return 0;
+    if (typeof ts === 'number') return ts;
+    if (ts.seconds) return ts.seconds * 1000;
+    return 0;
+  }
+
   // ============================================================
   // AUTH TABS
   // ============================================================
@@ -202,23 +248,16 @@
     });
   });
 
-  // Email → lowercase (no setSelectionRange — type=email doesn't support it)
   ['loginEmail', 'regEmail', 'regReferral'].forEach(id => {
     const el = $(id); if (!el) return;
-    el.addEventListener('input', () => {
-      el.value = el.value.toLowerCase();
-    });
+    el.addEventListener('input', () => { el.value = el.value.toLowerCase(); });
   });
 
-  // Phone → digits only
   ['regPhone', 'withdrawNumber'].forEach(id => {
     const el = $(id); if (!el) return;
-    el.addEventListener('input', () => {
-      el.value = el.value.replace(/\D/g, '').slice(0, 9);
-    });
+    el.addEventListener('input', () => { el.value = el.value.replace(/\D/g, '').slice(0, 9); });
   });
 
-  // M-Pesa code → uppercase alphanumeric
   ['mpesaCode', 'upgradeMpesaCode'].forEach(id => {
     const el = $(id); if (!el) return;
     el.addEventListener('input', () => {
@@ -230,7 +269,7 @@
   // REGISTER
   // ============================================================
   const registerBtn = $('registerBtn');
-  if (registerBtn) registerBtn.addEventListener('click', () => {
+  if (registerBtn) registerBtn.addEventListener('click', async () => {
     const name     = $('regName').value.trim();
     const email    = normalizeEmail($('regEmail').value);
     const phone    = normalizePhone($('regPhone').value);
@@ -241,83 +280,97 @@
     if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return toast('Invalid email address', true);
     if (phone.length !== 9) return toast('Phone must be 9 digits after +254', true);
     if (password.length < 6) return toast('Password must be at least 6 characters', true);
-    if (db.users.find(u => u.email === email)) return toast('Email already registered', true);
 
     let referredBy = null;
     if (refEmail) {
-      const referrer = db.users.find(u => u.email === refEmail);
-      if (referrer && referrer.email !== email) referredBy = referrer.id;
+      try {
+        const refUser = await window.firebase.getUserByEmail(refEmail);
+        if (refUser && refUser.email !== email) referredBy = refUser.id;
+      } catch {}
     }
 
-    const newUser = {
-      id: 'u_' + Date.now(),
-      name, email, phone, password,
-      level: 1,
-      hasKey: false,
-      keyApproved: false,
-      appsInstalledToday: 0,
-      installedToday: [],
-      lastInstallDate: new Date().toDateString(),
-      balance: 0,
-      referralEarnings: 0,
-      referredBy,
-      status: 'Active',
-      isAdmin: false,
-      createdAt: Date.now()
-    };
-    db.users.push(newUser);
+    try {
+      toast('Creating your account…');
+      const fbUser = await window.firebase.register(email, password, { name, phone, referredBy });
+      const profile = await window.firebase.getUser(fbUser.uid);
+      state.currentUser = profile;
 
-    if (referredBy) {
-      db.referrals.push({
-        id: 'r_' + Date.now(),
-        referrerId: referredBy,
-        referredUserId: newUser.id,
-        referredEmail: email,
-        amount: 0,
-        status: 'pending',
-        createdAt: Date.now()
-      });
+      if (referredBy) {
+        try {
+          await window.firebase.addRef({
+            referrerId: referredBy,
+            referredUserId: fbUser.uid,
+            referredEmail: email,
+            amount: 0,
+            status: 'pending'
+          });
+        } catch (e) { console.warn('referral write failed', e); }
+      }
+
+      toast('Account created! Choose your key package.');
+      showLevelSelection();
+    } catch (err) {
+      const msg = (err && err.message) || 'Registration failed';
+      toast(msg.replace('Firebase: ', ''), true);
     }
-
-    logLogin(email, 'Registered');
-    saveDB();
-    toast('Account created! Choose your key package to start earning.');
-    state.currentUser = newUser;
-    state.currentUserId = newUser.id;
-    showLevelSelection();
   });
 
   // ============================================================
   // LOGIN
   // ============================================================
   const loginBtn = $('loginBtn');
-  if (loginBtn) loginBtn.addEventListener('click', () => {
+  if (loginBtn) loginBtn.addEventListener('click', async () => {
     const email = normalizeEmail($('loginEmail').value);
     const pwd   = $('loginPassword').value;
-    const user  = db.users.find(u => u.email === email && u.password === pwd);
+    if (!email || !pwd) return toast('Enter email and password', true);
 
-    if (!user) return toast('Invalid credentials', true);
+    try {
+      const fbUser = await window.firebase.login(email, pwd);
+      const profile = await window.firebase.getUser(fbUser.uid);
+      if (!profile) return toast('Profile not found. Contact admin.', true);
+      state.currentUser = profile;
+      state.isAdmin = (email === window.firebase.ADMIN_EMAIL);
 
-    state.currentUser = user;
-    state.currentUserId = user.id;
-    logLogin(user.email, 'Login');
-    saveDB();
-
-    if (email === ADMIN_EMAIL) {
-      state.isAdmin = true;
-      showAdminPanel();
-      return;
+      if (state.isAdmin) {
+        await loadAdminData();
+        showAdminPanel();
+      } else {
+        await loadUserData();
+        await resetDailyIfNeededLocal(profile);
+        showUserDashboard();
+      }
+    } catch (err) {
+      const msg = (err && err.message) || 'Login failed';
+      toast(msg.replace('Firebase: ', ''), true);
     }
-
-    state.isAdmin = false;
-    resetDailyIfNeeded(user);
-    showUserDashboard();
   });
 
-  function logLogin(email, type) {
-    db.logins.unshift({ email, type, time: Date.now() });
-    if (db.logins.length > 50) db.logins = db.logins.slice(0, 50);
-    saveDB();
+  // ============================================================
+  // AUTO-LOGIN
+  // ============================================================
+  async function checkAuthState() {
+    return new Promise(resolve => {
+      const unsub = window.firebase.onAuth(async (fbUser) => {
+        if (!fbUser) { resolve(false); return; }
+        try {
+          const profile = await window.firebase.getUser(fbUser.uid);
+          if (profile) {
+            state.currentUser = profile;
+            state.isAdmin = (fbUser.email === window.firebase.ADMIN_EMAIL);
+            if (state.isAdmin) {
+              await loadAdminData();
+              showAdminPanel();
+            } else {
+              await loadUserData();
+              await resetDailyIfNeededLocal(profile);
+              showUserDashboard();
+            }
+          }
+        } catch (e) { console.warn(e); }
+        resolve(true);
+      });
+      setTimeout(() => { try { unsub(); } catch {} resolve(false); }, 2500);
+    });
   }
 
   // ============================================================
@@ -331,38 +384,80 @@
     if (adminPanel)    adminPanel.classList.add('hidden');
   }
 
+  function showAuth() {
+    hideAll();
+    if (authScreen) authScreen.classList.remove('hidden');
+  }
+
   function showLevelSelection() {
     const u = state.currentUser;
-    if (u && u.keyApproved) {
-      showUserDashboard();
-      return;
-    }
-
+    if (u && u.keyApproved) { showUserDashboard(); return; }
     hideAll();
     if (levelScreen) levelScreen.classList.remove('hidden');
     renderLevelGrid();
-    const pb = $('displayPaybill'); if (pb) pb.textContent = db.settings.paybill;
-    const ac = $('displayAcc');     if (ac) ac.textContent = db.settings.account;
+    const pb = $('displayPaybill'); if (pb) pb.textContent = state.settings.paybill;
+    const ac = $('displayAcc');     if (ac) ac.textContent = state.settings.account;
     const kp = $('keyPurchaseBox'); if (kp) kp.classList.add('hidden');
+
+    window.firebase.getSettings().then(s => {
+      state.settings = s;
+      const pb2 = $('displayPaybill'); if (pb2) pb2.textContent = s.paybill;
+      const ac2 = $('displayAcc');     if (ac2) ac2.textContent = s.account;
+    }).catch(() => {});
   }
 
-  function showUserDashboard() {
+  async function showUserDashboard() {
     hideAll();
     if (userDashboard) userDashboard.classList.remove('hidden');
     const u = state.currentUser;
     if (!u) return;
     const rl = $('referralLink');
-    if (rl) rl.value =
-      `${location.origin}${location.pathname}?ref=${encodeURIComponent(u.email)}`;
-    renderUserDashboard();
+    if (rl) rl.value = `${location.origin}${location.pathname}?ref=${encodeURIComponent(u.email)}`;
+    await renderUserDashboard();
     startAppStrip();
   }
 
-  function showAdminPanel() {
+  async function showAdminPanel() {
     hideAll();
     if (adminPanel) adminPanel.classList.remove('hidden');
     stopAppStrip();
+    await loadAdminData();
     renderAdminPanel();
+  }
+
+  // ============================================================
+  // DATA LOADERS
+  // ============================================================
+  async function loadUserData() {
+    const u = state.currentUser;
+    if (!u) return;
+    try {
+      const [txs, wds, refs, settings] = await Promise.all([
+        window.firebase.userTxs(u.id),
+        window.firebase.userWithdrawals(u.id),
+        window.firebase.userRefs(u.id),
+        window.firebase.getSettings()
+      ]);
+      state.userTxs = txs;
+      state.userWithdrawals = wds;
+      state.userReferrals = refs;
+      state.settings = settings;
+    } catch (e) { console.warn('loadUserData', e); }
+  }
+
+  async function loadAdminData() {
+    try {
+      const [users, txs, wds, refs] = await Promise.all([
+        window.firebase.allUsers(),
+        window.firebase.allTxs(),
+        window.firebase.allWithdrawals(),
+        window.firebase.allRefs()
+      ]);
+      state.allUsers = users;
+      state.allTransactions = txs;
+      state.allWithdrawals = wds;
+      state.allReferrals = refs;
+    } catch (e) { console.warn('loadAdminData', e); }
   }
 
   // ============================================================
@@ -407,13 +502,10 @@
   // SUBMIT KEY
   // ============================================================
   const submitKeyBtn = $('submitKeyBtn');
-  if (submitKeyBtn) submitKeyBtn.addEventListener('click', () => {
+  if (submitKeyBtn) submitKeyBtn.addEventListener('click', async () => {
     const u = state.currentUser;
     if (!u) return toast('Please log in again', true);
-
-    if (u.keyApproved) {
-      return toast('You already have an active key. Upgrade instead of re-buying.');
-    }
+    if (u.keyApproved) return toast('You already have an active key. Upgrade instead of re-buying.');
 
     const code = $('mpesaCode').value.trim().toUpperCase();
     if (!isValidMpesaCode(code))
@@ -422,32 +514,28 @@
     const lvl = state.selectedLevel;
     const price = LEVELS[lvl].keyPrice;
 
-    u.level = lvl;
-    u.hasKey = false;
-    u.keyApproved = false;
-    u.pendingKey = true;
-    u.status = 'Pending key verification';
-
-    db.transactions.unshift({
-      id: 't_' + Date.now(),
-      userId: u.id,
-      userEmail: u.email,
-      type: 'key_purchase',
-      level: lvl,
-      amount: price,
-      mpesaCode: code,
-      status: 'pending',
-      createdAt: Date.now()
-    });
-
-    saveDB();
-    toast('Key submitted! Awaiting admin verification.');
-    showUserDashboard();
+    try {
+      await window.firebase.updateUser(u.id, {
+        level: lvl, hasKey: false, keyApproved: false,
+        pendingKey: true, status: 'Pending key verification'
+      });
+      await window.firebase.addTx({
+        userId: u.id, userEmail: u.email, type: 'key_purchase',
+        level: lvl, amount: price, mpesaCode: code, status: 'pending'
+      });
+      state.currentUser = await window.firebase.getUser(u.id);
+      await loadUserData();
+      toast('Key submitted! Awaiting admin verification.');
+      showUserDashboard();
+    } catch (e) {
+      toast('Submission failed: ' + (e.message || e), true);
+    }
   });
 
   const skipBtn = $('skipLevelBtn');
-  if (skipBtn) skipBtn.addEventListener('click', () => {
+  if (skipBtn) skipBtn.addEventListener('click', async () => {
     if (!state.currentUser) return;
+    try { await window.firebase.updateUser(state.currentUser.id, { hasKey: false }); } catch {}
     state.currentUser.hasKey = false;
     showUserDashboard();
   });
@@ -455,27 +543,27 @@
   // ============================================================
   // DAILY RESET
   // ============================================================
-  function resetDailyIfNeeded(user) {
+  async function resetDailyIfNeededLocal(user) {
     const today = new Date().toDateString();
     if (user.lastInstallDate !== today) {
-      user.appsInstalledToday = 0;
-      user.installedToday = [];
-      user.lastInstallDate = today;
-      state.dailyApps = null;
-      state.basket = null;
-      saveDB();
+      try {
+        await window.firebase.updateUser(user.id, {
+          appsInstalledToday: 0, installedToday: [], lastInstallDate: today
+        });
+        user.appsInstalledToday = 0;
+        user.installedToday = [];
+        user.lastInstallDate = today;
+      } catch {}
     }
   }
 
   // ============================================================
   // USER DASHBOARD
   // ============================================================
-  function renderUserDashboard() {
+  async function renderUserDashboard() {
     const u = state.currentUser;
     if (!u) return;
-    resetDailyIfNeeded(u);
 
-    // Pre-fill withdrawal form with saved details (only if empty)
     const wNumEl = $('withdrawNumber');
     if (wNumEl && !wNumEl.value && u.withdrawPhone) {
       wNumEl.value = String(u.withdrawPhone).replace(/^\+254/, '').replace(/\D/g, '').slice(0, 9);
@@ -488,7 +576,7 @@
     const lvl  = u.level || 1;
     const cfg  = LEVELS[lvl];
     const limit = cfg.appsPerDay;
-    const remaining = Math.max(0, limit - u.appsInstalledToday);
+    const remaining = Math.max(0, limit - (u.appsInstalledToday || 0));
     const unlocked = !!u.keyApproved;
 
     const lvlEl = $('userLevelDisplay');
@@ -510,40 +598,30 @@
       else banner.classList.add('hidden');
     }
 
-    // ---- referral section ----
-    const refCount = db.users.filter(x => x.referredBy === u.id).length;
+    const refs = state.userReferrals || [];
+    const refCount = refs.filter(r => r.referrerId === u.id).length;
     const rcEl = $('referredCount'); if (rcEl) rcEl.textContent = refCount;
 
-    // Lifetime referral earnings — always visible, never resets
-    const lifetimeReferral = db.referrals
+    const lifetimeReferral = refs
       .filter(r => r.referrerId === u.id && r.status === 'approved')
       .reduce((s, r) => s + (r.amount || 0), 0);
-
-    if (u.referralEarnings !== lifetimeReferral) {
-      u.referralEarnings = lifetimeReferral;
-      saveDB();
-    }
-
     const reEl = $('referralEarnings');
     if (reEl) reEl.value = `Ksh ${lifetimeReferral.toFixed(2)}`;
 
-    const pendingAmt = db.referrals
+    const pendingAmt = refs
       .filter(r => r.referrerId === u.id && r.status === 'pending')
       .reduce((s, r) => s + (r.amount || 0), 0);
     const prEl = $('pendingReferralAmount');
     if (prEl) prEl.textContent = `Ksh ${pendingAmt.toFixed(2)}`;
 
-    // ---- user withdrawal history (inline list, if you render it) ----
     const wHistEl = $('userWithdrawHistory');
     if (wHistEl) {
-      const myWithdrawals = db.withdrawals
-        .filter(w => w.userId === u.id)
-        .sort((a, b) => b.createdAt - a.createdAt);
-
+      const myWithdrawals = (state.userWithdrawals || [])
+        .slice().sort((a, b) => tsToMs(b.createdAt) - tsToMs(a.createdAt));
       wHistEl.innerHTML = myWithdrawals.length
         ? myWithdrawals.map(w => `
             <div class="log-row">
-              ${new Date(w.createdAt).toLocaleString()} · Ksh ${w.amount} · ${w.phone}<br>
+              ${new Date(tsToMs(w.createdAt)).toLocaleString()} · Ksh ${w.amount} · ${w.phone}<br>
               <span class="badge badge-${w.status === 'pending' ? 'pending' : (w.status === 'approved' ? 'approved' : 'rejected')}">
                 ${w.status}
               </span>
@@ -552,7 +630,6 @@
         : '<div class="log-row text-muted">No withdrawals yet</div>';
     }
 
-    // ---- daily pool ----
     if (!state.dailyApps ||
         state.dailyApps._email !== u.email ||
         state.dailyApps._date  !== getTodayKey()) {
@@ -561,8 +638,6 @@
       state.dailyApps._date  = getTodayKey();
       state.basket = null;
     }
-
-    // ---- fixed basket for today ----
     if (!state.basket ||
         state.basket._email !== u.email ||
         state.basket._date  !== getTodayKey() ||
@@ -577,7 +652,6 @@
     const container = $('appListContainer');
     if (!container) return;
     container.innerHTML = '';
-
     const installedIds = Array.isArray(u.installedToday) ? u.installedToday : [];
 
     state.basket.forEach(app => {
@@ -585,7 +659,7 @@
       const installation = state.activeInstallations[appId];
       const isInstalling = !!installation;
       const isDone = installedIds.includes(appId);
-      const atLimit = u.appsInstalledToday >= limit;
+      const atLimit = (u.appsInstalledToday || 0) >= limit;
 
       const item = document.createElement('div');
       item.className = 'app-item' + (!unlocked ? ' locked' : '') + (isDone ? ' installed' : '');
@@ -593,7 +667,7 @@
       const leftDiv = document.createElement('div');
       leftDiv.className = 'app-info';
       leftDiv.innerHTML = `
-        <div class="app-icon">${app.icon}</div>
+        <div class="app-icon">${iconImg(app.name, 44)}</div>
         <div>
           <div class="app-name">${app.name}</div>
           <span class="app-payout">Earn Ksh ${app.payout}</span>
@@ -656,7 +730,7 @@
     if (!u) return;
     if (!u.keyApproved) return toast('Apps locked — key not yet approved', true);
     const cfg = LEVELS[u.level || 1];
-    if (u.appsInstalledToday >= cfg.appsPerDay) return toast('Daily limit reached', true);
+    if ((u.appsInstalledToday || 0) >= cfg.appsPerDay) return toast('Daily limit reached', true);
 
     const appId = app.id;
     if (state.activeInstallations[appId]) return;
@@ -665,10 +739,9 @@
     const startTime = Date.now();
     state.activeInstallations[appId] = { progress: 0, startTime, duration };
 
-    const intervalId = setInterval(() => {
+    const intervalId = setInterval(async () => {
       const inst = state.activeInstallations[appId];
       if (!inst) { clearInterval(intervalId); return; }
-
       const elapsed = Date.now() - inst.startTime;
       inst.progress = Math.min(100, (elapsed / duration) * 100);
 
@@ -680,13 +753,23 @@
         clearInterval(intervalId);
         delete state.activeInstallations[appId];
 
-        u.appsInstalledToday++;
-        u.balance = (u.balance || 0) + app.payout;
+        const newInstalled = Array.isArray(u.installedToday) ? [...u.installedToday] : [];
+        if (!newInstalled.includes(appId)) newInstalled.push(appId);
+        const newBalance = (u.balance || 0) + app.payout;
+        const newCount = (u.appsInstalledToday || 0) + 1;
 
-        if (!Array.isArray(u.installedToday)) u.installedToday = [];
-        if (!u.installedToday.includes(appId)) u.installedToday.push(appId);
+        u.balance = newBalance;
+        u.appsInstalledToday = newCount;
+        u.installedToday = newInstalled;
 
-        saveDB();
+        try {
+          await window.firebase.updateUser(u.id, {
+            balance: newBalance,
+            appsInstalledToday: newCount,
+            installedToday: newInstalled
+          });
+        } catch (e) { console.warn('install write failed', e); }
+
         renderUserDashboard();
         flashBalance();
         toast(`Installed ${app.name}! +Ksh ${app.payout}`);
@@ -698,10 +781,10 @@
   }
 
   // ============================================================
-  // WITHDRAWAL — request
+  // WITHDRAWAL REQUEST
   // ============================================================
   const requestWithdrawBtn = $('requestWithdrawBtn');
-  if (requestWithdrawBtn) requestWithdrawBtn.addEventListener('click', () => {
+  if (requestWithdrawBtn) requestWithdrawBtn.addEventListener('click', async () => {
     const u = state.currentUser;
     if (!u) return;
 
@@ -716,66 +799,57 @@
 
     const fullPhone = '+254' + phone9;
 
-    // 💾 Save these details on the user's profile so they auto-fill next time
-    u.withdrawPhone = fullPhone;
-    u.withdrawName  = name;
+    try {
+      await window.firebase.updateUser(u.id, {
+        withdrawPhone: fullPhone,
+        withdrawName: name,
+        balance: (u.balance || 0) - amount,
+        status: 'Withdrawn'
+      });
+      await window.firebase.addWithdraw({
+        userId: u.id, userEmail: u.email, amount,
+        phone: fullPhone, name, status: 'pending'
+      });
+      await window.firebase.addTx({
+        userId: u.id, userEmail: u.email,
+        type: 'withdrawal', amount: -amount, status: 'pending'
+      });
 
-    u.balance -= amount;
-    u.status = 'Withdrawn';
+      state.currentUser = await window.firebase.getUser(u.id);
+      await loadUserData();
+      renderUserDashboard();
 
-    // Each request keeps its own immutable snapshot (phone + name at time of request)
-    db.withdrawals.unshift({
-      id: 'w_' + Date.now(),
-      userId: u.id,
-      userEmail: u.email,
-      amount,
-      phone: fullPhone,
-      name,
-      status: 'pending',
-      createdAt: Date.now()
-    });
-
-    db.transactions.unshift({
-      id: 't_' + Date.now(),
-      userId: u.id,
-      userEmail: u.email,
-      type: 'withdrawal',
-      amount: -amount,
-      status: 'pending',
-      createdAt: Date.now()
-    });
-
-    saveDB();
-    renderUserDashboard();
-    $('withdrawAmount').value = '';
-    $('withdrawNumber').value = '';
-    $('withdrawName').value = '';
-    toast('Withdrawal request submitted (24hr processing, Mon–Fri)');
+      $('withdrawAmount').value = '';
+      $('withdrawNumber').value = '';
+      $('withdrawName').value = '';
+      toast('Withdrawal request submitted (24hr processing, Mon–Fri)');
+    } catch (e) {
+      toast('Withdrawal failed: ' + (e.message || e), true);
+    }
   });
 
   // ============================================================
-  // WITHDRAWAL — history toggle (independent, always works)
+  // WITHDRAWAL HISTORY TOGGLE
   // ============================================================
   const toggleWithdrawHistory = $('toggleWithdrawHistory');
   if (toggleWithdrawHistory) {
-    toggleWithdrawHistory.addEventListener('click', (e) => {
+    toggleWithdrawHistory.addEventListener('click', async (e) => {
       e.preventDefault();
-
       const box = $('withdrawHistoryBox');
       if (!box) return;
 
-      // Rebuild history content from DB every time the user opens it
-      const u = state.currentUser;
-      const hist = $('userWithdrawHistory');
-      if (hist && u) {
-        const myWithdrawals = db.withdrawals
-          .filter(w => w.userId === u.id)
-          .sort((a, b) => b.createdAt - a.createdAt);
+      try {
+        state.userWithdrawals = await window.firebase.userWithdrawals(state.currentUser.id);
+      } catch {}
 
-        hist.innerHTML = myWithdrawals.length
-          ? myWithdrawals.map(w => `
+      const hist = $('userWithdrawHistory');
+      if (hist) {
+        const list = (state.userWithdrawals || []).slice()
+          .sort((a, b) => tsToMs(b.createdAt) - tsToMs(a.createdAt));
+        hist.innerHTML = list.length
+          ? list.map(w => `
               <div class="log-row">
-                ${new Date(w.createdAt).toLocaleString()} · Ksh ${w.amount} · ${w.phone}<br>
+                ${new Date(tsToMs(w.createdAt)).toLocaleString()} · Ksh ${w.amount} · ${w.phone}<br>
                 <span class="badge badge-${w.status === 'pending' ? 'pending' : (w.status === 'approved' ? 'approved' : 'rejected')}">
                   ${w.status}
                 </span>
@@ -785,13 +859,10 @@
       }
 
       const isHidden = box.classList.contains('hidden');
-      if (isHidden) {
-        box.classList.remove('hidden');
-        toggleWithdrawHistory.textContent = '📜 Hide Withdrawal History';
-      } else {
-        box.classList.add('hidden');
-        toggleWithdrawHistory.textContent = '📜 View Withdrawal History';
-      }
+      box.classList.toggle('hidden', !isHidden);
+      toggleWithdrawHistory.textContent = isHidden
+        ? '📜 Hide Withdrawal History'
+        : '📜 View Withdrawal History';
     });
   }
 
@@ -804,8 +875,8 @@
     if (upgradeScreen) upgradeScreen.classList.remove('hidden');
     stopAppStrip();
     renderUpgradeGrid();
-    const pb = $('upgradePaybill'); if (pb) pb.textContent = db.settings.paybill;
-    const ac = $('upgradeAcc');     if (ac) ac.textContent = db.settings.account;
+    const pb = $('upgradePaybill'); if (pb) pb.textContent = state.settings.paybill;
+    const ac = $('upgradeAcc');     if (ac) ac.textContent = state.settings.account;
     const box = $('upgradePurchaseBox'); if (box) box.classList.add('hidden');
   });
 
@@ -821,7 +892,6 @@
     Object.entries(LEVELS).forEach(([lvl, cfg]) => {
       const lvlNum = Number(lvl);
       if (lvlNum <= currentLvl) return;
-
       const card = document.createElement('div');
       card.className = 'plan-card' + (state.selectedUpgradeLevel === lvlNum ? ' selected' : '');
       card.innerHTML = `
@@ -851,7 +921,7 @@
   }
 
   const submitUpgradeBtn = $('submitUpgradeBtn');
-  if (submitUpgradeBtn) submitUpgradeBtn.addEventListener('click', () => {
+  if (submitUpgradeBtn) submitUpgradeBtn.addEventListener('click', async () => {
     const u = state.currentUser;
     if (!u) return;
     const code = $('upgradeMpesaCode').value.trim().toUpperCase();
@@ -862,61 +932,61 @@
       return toast('Invalid M-Pesa code. Use 10 letters/numbers', true);
 
     const price = LEVELS[newLvl].keyPrice;
-    u.level = newLvl;
-    u.appsInstalledToday = 0;
-    u.installedToday = [];
-    u.lastInstallDate = new Date().toDateString();
-    u.status = 'Pending upgrade verification';
-    u.keyApproved = false;
-    u.pendingKey = true;
-    state.basket = null;
-
-    db.transactions.unshift({
-      id: 't_' + Date.now(),
-      userId: u.id,
-      userEmail: u.email,
-      type: 'upgrade',
-      level: newLvl,
-      amount: price,
-      mpesaCode: code,
-      status: 'pending',
-      createdAt: Date.now()
-    });
-
-    saveDB();
-    toast('Upgrade submitted! Awaiting admin verification.');
-    showUserDashboard();
+    try {
+      await window.firebase.updateUser(u.id, {
+        level: newLvl, appsInstalledToday: 0, installedToday: [],
+        lastInstallDate: new Date().toDateString(),
+        status: 'Pending upgrade verification',
+        keyApproved: false, pendingKey: true
+      });
+      await window.firebase.addTx({
+        userId: u.id, userEmail: u.email, type: 'upgrade',
+        level: newLvl, amount: price, mpesaCode: code, status: 'pending'
+      });
+      state.currentUser = await window.firebase.getUser(u.id);
+      state.basket = null;
+      await loadUserData();
+      toast('Upgrade submitted! Awaiting admin verification.');
+      showUserDashboard();
+    } catch (e) {
+      toast('Upgrade failed: ' + (e.message || e), true);
+    }
   });
 
   // ============================================================
   // LOGOUT
   // ============================================================
   const logoutUserBtn = $('logoutUserBtn');
-  if (logoutUserBtn) logoutUserBtn.addEventListener('click', () => {
+  if (logoutUserBtn) logoutUserBtn.addEventListener('click', async () => {
     stopAppStrip();
     for (const id in state.activeInstallations) {
       const inst = state.activeInstallations[id];
       if (inst && inst.intervalId) clearInterval(inst.intervalId);
     }
+    state.activeInstallations = {};
     state.dailyApps = null;
     state.basket = null;
-    state.activeInstallations = {};
     state.currentUser = null;
-    state.currentUserId = null;
     state.isAdmin = false;
-    hideAll();
-    if (authScreen) authScreen.classList.remove('hidden');
+    state.userTxs = [];
+    state.userWithdrawals = [];
+    state.userReferrals = [];
+    try { await window.firebase.logout(); } catch {}
+    showAuth();
   });
 
   const logoutAdminBtn = $('logoutAdminBtn');
-  if (logoutAdminBtn) logoutAdminBtn.addEventListener('click', () => {
+  if (logoutAdminBtn) logoutAdminBtn.addEventListener('click', async () => {
     state.dailyApps = null;
     state.basket = null;
     state.isAdmin = false;
     state.currentUser = null;
-    state.currentUserId = null;
-    hideAll();
-    if (authScreen) authScreen.classList.remove('hidden');
+    state.allUsers = [];
+    state.allTransactions = [];
+    state.allWithdrawals = [];
+    state.allReferrals = [];
+    try { await window.firebase.logout(); } catch {}
+    showAuth();
   });
 
   // ============================================================
@@ -927,19 +997,13 @@
       document.querySelectorAll('[data-admin-tab]').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       const tab = btn.dataset.adminTab;
-
       ['adminOverview','adminUsers','adminKeys','adminTransactions',
        'adminWithdrawals','adminReferrals','adminSettings']
         .forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
-
       const map = {
-        overview: 'adminOverview',
-        users: 'adminUsers',
-        keys: 'adminKeys',
-        transactions: 'adminTransactions',
-        withdrawals: 'adminWithdrawals',
-        referrals: 'adminReferrals',
-        settings: 'adminSettings'
+        overview: 'adminOverview', users: 'adminUsers', keys: 'adminKeys',
+        transactions: 'adminTransactions', withdrawals: 'adminWithdrawals',
+        referrals: 'adminReferrals', settings: 'adminSettings'
       };
       const target = $(map[tab]);
       if (target) target.classList.remove('hidden');
@@ -950,69 +1014,57 @@
   // ADMIN RENDER
   // ============================================================
   function renderAdminPanel() {
-    // ---- stats ----
-    const sUsers = $('statUsers'); if (sUsers) sUsers.textContent = db.users.length;
-    const keysSold = db.transactions
-      .filter(t => (t.type === 'key_purchase' || t.type === 'upgrade') && t.status === 'completed')
-      .length;
+    const users = state.allUsers || [];
+    const txs = state.allTransactions || [];
+    const wds = state.allWithdrawals || [];
+    const refs = state.allReferrals || [];
+
+    const sUsers = $('statUsers'); if (sUsers) sUsers.textContent = users.length;
+    const keysSold = txs.filter(t => (t.type === 'key_purchase' || t.type === 'upgrade') && t.status === 'completed').length;
     const sKeys = $('statKeys'); if (sKeys) sKeys.textContent = keysSold;
-    const revenue = db.transactions
+    const revenue = txs
       .filter(t => (t.type === 'key_purchase' || t.type === 'upgrade') && t.status === 'completed')
       .reduce((s, t) => s + (t.amount || 0), 0);
     const sRev = $('statRevenue'); if (sRev) sRev.textContent = `Ksh ${revenue.toLocaleString()}`;
     const sWd = $('statWithdrawals');
-    if (sWd) sWd.textContent = db.withdrawals.filter(w => w.status === 'pending').length;
-    const pendingKeys = db.transactions
-      .filter(t => (t.type === 'key_purchase' || t.type === 'upgrade') && t.status === 'pending')
-      .length;
+    if (sWd) sWd.textContent = wds.filter(w => w.status === 'pending').length;
+    const pendingKeys = txs.filter(t => (t.type === 'key_purchase' || t.type === 'upgrade') && t.status === 'pending').length;
     const sPk = $('statPendingKeys'); if (sPk) sPk.textContent = pendingKeys;
 
-    // ---- logins ----
     const lEl = $('adminUserLogins');
-    if (lEl) lEl.innerHTML = db.logins.length
-      ? db.logins.slice(0, 15).map(l =>
-          `<div class="log-row">${l.email} · ${l.type} · ${new Date(l.time).toLocaleString()}</div>`
-        ).join('')
-      : '<div class="log-row text-muted">No logins yet</div>';
+    if (lEl) {
+      lEl.innerHTML = users.slice(0, 15).map(u =>
+        `<div class="log-row">${u.email} · L${u.level || 1} · ${u.status || 'Active'}</div>`
+      ).join('') || '<div class="log-row text-muted">No users yet</div>';
+    }
 
-    // ---- codes ----
-    const codes = db.transactions.filter(t => t.mpesaCode);
+    const codes = txs.filter(t => t.mpesaCode);
     const cEl = $('adminMpesaCodes');
-    if (cEl) cEl.innerHTML = codes.length
-      ? codes.slice(0, 15).map(t =>
-          `<div class="log-row">
-            <strong>${t.mpesaCode}</strong> · Ksh ${t.amount} · ${t.userEmail}
-            <span class="badge badge-${t.status === 'pending' ? 'pending' : 'approved'}">${t.status}</span>
-          </div>`
-        ).join('')
-      : '<div class="log-row text-muted">No codes yet</div>';
+    if (cEl) cEl.innerHTML = codes.slice(0, 15).map(t =>
+      `<div class="log-row">
+        <strong>${t.mpesaCode}</strong> · Ksh ${t.amount} · ${t.userEmail}
+        <span class="badge badge-${t.status === 'pending' ? 'pending' : 'approved'}">${t.status}</span>
+      </div>`
+    ).join('') || '<div class="log-row text-muted">No codes yet</div>';
 
-    // ---- pending referrals ----
-    const pendingRefs = db.referrals.filter(r => r.status === 'pending');
+    const pendingRefs = refs.filter(r => r.status === 'pending');
     const prEl = $('adminPendingReferrals');
-    if (prEl) prEl.innerHTML = pendingRefs.length
-      ? pendingRefs.slice(0, 10).map(r =>
-          `<div class="log-row">
-            <strong>${r.referrerEmail || 'user'}</strong> ← ${r.referredEmail} · Ksh ${r.amount.toFixed(2)}
-            <button class="btn btn-sm btn-success" onclick="window.__approveRef('${r.id}')">Approve</button>
-          </div>`
-        ).join('')
-      : '<div class="log-row text-muted">No pending referrals</div>';
+    if (prEl) prEl.innerHTML = pendingRefs.slice(0, 10).map(r =>
+      `<div class="log-row">
+        <strong>${r.referrerEmail || 'user'}</strong> ← ${r.referredEmail} · Ksh ${(r.amount || 0).toFixed(2)}
+        <button class="btn btn-sm btn-success" onclick="window.__approveRef('${r.id}')">Approve</button>
+      </div>`
+    ).join('') || '<div class="log-row text-muted">No pending referrals</div>';
 
-    // ---- users ----
     const ulEl = $('adminUsersList');
-    if (ulEl) ulEl.innerHTML = db.users.map(u => {
+    if (ulEl) ulEl.innerHTML = users.map(u => {
       const savedPhone = u.withdrawPhone || '—';
-      const savedName  = u.withdrawName  || '—';
-
-      const pastReqs = db.withdrawals
-        .filter(w => w.userId === u.id)
-        .sort((a, b) => b.createdAt - a.createdAt);
-
+      const savedName  = u.withdrawName || '—';
+      const pastReqs = wds.filter(w => w.userId === u.id).sort((a, b) => tsToMs(b.createdAt) - tsToMs(a.createdAt));
       const historyHtml = pastReqs.length
         ? pastReqs.map(w => `
             <div class="log-row" style="border-left:2px solid #2c7050;padding-left:8px;margin-top:6px;">
-              <span class="text-muted">${new Date(w.createdAt).toLocaleString()}</span><br>
+              <span class="text-muted">${new Date(tsToMs(w.createdAt)).toLocaleString()}</span><br>
               Ksh ${w.amount} → <strong>${w.name}</strong> · ${w.phone}
               <span class="badge badge-${w.status === 'pending' ? 'pending' : (w.status === 'approved' ? 'approved' : 'rejected')}">${w.status}</span>
             </div>
@@ -1021,7 +1073,7 @@
 
       return `
         <div class="log-row">
-          <strong>${u.name}</strong> · ${u.email} · +254${u.phone}<br>
+          <strong>${u.name}</strong> · ${u.email} · +254${u.phone || '—'}<br>
           Level ${u.level || 1} · Balance Ksh ${(u.balance || 0).toFixed(2)} · Status:
           <span class="badge badge-active">${u.status || 'Active'}</span>
           ${u.keyApproved ? ' · <span class="badge badge-approved">Key verified</span>' : ''}
@@ -1044,32 +1096,26 @@
           </div>
         </div>
       `;
-    }).join('');
+    }).join('') || '<div class="log-row text-muted">No users yet</div>';
 
-    // ---- key approvals ----
-    const pendingKeyTx = db.transactions.filter(t =>
-      (t.type === 'key_purchase' || t.type === 'upgrade') && t.status === 'pending'
-    );
+    const pendingKeyTx = txs.filter(t => (t.type === 'key_purchase' || t.type === 'upgrade') && t.status === 'pending');
     const kEl = $('adminKeysList');
-    if (kEl) kEl.innerHTML = pendingKeyTx.length
-      ? pendingKeyTx.map(t => {
-          const user = db.users.find(u => u.id === t.userId);
-          return `
-            <div class="log-row">
-              <strong>${user ? user.name : 'Unknown'}</strong> · ${t.userEmail}<br>
-              ${t.type === 'upgrade' ? 'Upgrade' : 'Key purchase'} · Level ${t.level} · Ksh ${t.amount}<br>
-              M-Pesa code: <strong style="color:#9bc2ff">${t.mpesaCode}</strong> ·
-              <span class="badge badge-pending">pending</span>
-              <div class="mt-1">
-                <button class="btn btn-sm btn-success" onclick="window.__approveKey('${t.id}')">Approve</button>
-                <button class="btn btn-sm btn-danger" onclick="window.__rejectKey('${t.id}')">Reject</button>
-              </div>
-            </div>
-          `;
-        }).join('')
-      : '<div class="log-row text-muted">No pending key approvals</div>';
+    if (kEl) kEl.innerHTML = pendingKeyTx.map(t => {
+      const user = users.find(u => u.id === t.userId);
+      return `
+        <div class="log-row">
+          <strong>${user ? user.name : 'Unknown'}</strong> · ${t.userEmail}<br>
+          ${t.type === 'upgrade' ? 'Upgrade' : 'Key purchase'} · Level ${t.level} · Ksh ${t.amount}<br>
+          M-Pesa code: <strong style="color:#9bc2ff">${t.mpesaCode}</strong> ·
+          <span class="badge badge-pending">pending</span>
+          <div class="mt-1">
+            <button class="btn btn-sm btn-success" onclick="window.__approveKey('${t.id}')">Approve</button>
+            <button class="btn btn-sm btn-danger" onclick="window.__rejectKey('${t.id}')">Reject</button>
+          </div>
+        </div>
+      `;
+    }).join('') || '<div class="log-row text-muted">No pending key approvals</div>';
 
-    // ---- transactions (grouped) ----
     const txEl = $('adminTransactionsList');
     if (txEl) {
       const groups = [
@@ -1078,22 +1124,19 @@
         { key: 'withdrawal',          title: '💰 Withdrawals' },
         { key: 'referral_commission', title: '🤝 Referral Commissions' }
       ];
-      const safeTx = db.transactions.filter(t => t.type !== 'install');
-
+      const safeTx = txs.filter(t => t.type !== 'install');
       if (!safeTx.length) {
         txEl.innerHTML = '<div class="log-row text-muted">No transactions yet</div>';
       } else {
         txEl.innerHTML = groups.map(g => {
-          const rows = safeTx
-            .filter(t => t.type === g.key)
-            .sort((a, b) => b.createdAt - a.createdAt);
+          const rows = safeTx.filter(t => t.type === g.key).sort((a, b) => tsToMs(b.createdAt) - tsToMs(a.createdAt));
           if (!rows.length) return '';
           return `
             <div style="margin-bottom:18px;">
               <div style="font-weight:600;color:#9bc2ff;margin-bottom:6px;">${g.title} (${rows.length})</div>
               ${rows.map(t => `
                 <div class="log-row">
-                  ${new Date(t.createdAt).toLocaleString()} · Ksh ${t.amount} · ${t.userEmail}
+                  ${new Date(tsToMs(t.createdAt)).toLocaleString()} · Ksh ${t.amount} · ${t.userEmail}
                   ${t.mpesaCode ? ' · Code: ' + t.mpesaCode : ''}
                   ${t.level ? ' · L' + t.level : ''}
                   · <span class="badge badge-${t.status === 'pending' ? 'pending' : 'approved'}">${t.status}</span>
@@ -1105,249 +1148,223 @@
       }
     }
 
-    // ---- withdrawals ----
     const wEl = $('adminWithdrawalsList');
-    if (wEl) wEl.innerHTML = db.withdrawals.length
-      ? db.withdrawals.map(w => `
-          <div class="log-row">
-            <strong>${w.name}</strong> · ${w.phone} · Ksh ${w.amount} ·
-            <span class="badge badge-${w.status === 'pending' ? 'pending' : 'approved'}">${w.status}</span>
-            ${w.status === 'pending'
-              ? `<button class="btn btn-sm btn-success" onclick="window.__approveWithdraw('${w.id}')">Approve</button>`
-              : ''}
-          </div>
-        `).join('')
-      : '<div class="log-row text-muted">No withdrawals yet</div>';
+    if (wEl) wEl.innerHTML = wds.map(w => `
+      <div class="log-row">
+        <strong>${w.name}</strong> · ${w.phone} · Ksh ${w.amount} ·
+        <span class="badge badge-${w.status === 'pending' ? 'pending' : 'approved'}">${w.status}</span>
+        ${w.status === 'pending'
+          ? `<button class="btn btn-sm btn-success" onclick="window.__approveWithdraw('${w.id}')">Approve</button>`
+          : ''}
+      </div>
+    `).join('') || '<div class="log-row text-muted">No withdrawals yet</div>';
 
-    // ---- referrals ----
     const rEl = $('adminReferralsList');
-    if (rEl) rEl.innerHTML = db.referrals.length
-      ? db.referrals.map(r => `
-          <div class="log-row">
-            ${r.referrerEmail || 'referrer'} ← ${r.referredEmail} · Ksh ${r.amount.toFixed(2)}
-            <span class="badge badge-${r.status === 'pending' ? 'pending' : 'approved'}">${r.status}</span>
-            ${r.status === 'pending'
-              ? `<button class="btn btn-sm btn-success" onclick="window.__approveRef('${r.id}')">Approve</button>`
-              : ''}
-          </div>
-        `).join('')
-      : '<div class="log-row text-muted">No referrals yet</div>';
+    if (rEl) rEl.innerHTML = refs.map(r => `
+      <div class="log-row">
+        ${r.referrerEmail || 'referrer'} ← ${r.referredEmail} · Ksh ${(r.amount || 0).toFixed(2)}
+        <span class="badge badge-${r.status === 'pending' ? 'pending' : 'approved'}">${r.status}</span>
+        ${r.status === 'pending'
+          ? `<button class="btn btn-sm btn-success" onclick="window.__approveRef('${r.id}')">Approve</button>`
+          : ''}
+      </div>
+    `).join('') || '<div class="log-row text-muted">No referrals yet</div>';
 
-    // ---- settings ----
-    const pbI = $('paybillInput'); if (pbI) pbI.value = db.settings.paybill;
-    const acI = $('accInput');     if (acI) acI.value = db.settings.account;
+    window.firebase.getSettings().then(s => {
+      const pbI = $('paybillInput'); if (pbI) pbI.value = s.paybill;
+      const acI = $('accInput');     if (acI) acI.value = s.account;
+    }).catch(() => {});
   }
 
   // ============================================================
   // ADMIN ACTIONS
   // ============================================================
-  window.__approveRef = function (id) {
-    const r = db.referrals.find(x => x.id === id);
-    if (!r || r.status !== 'pending') return;
-    r.status = 'approved';
-
-    const referrer = db.users.find(u => u.id === r.referrerId);
-    if (referrer) {
-      referrer.balance = (referrer.balance || 0) + r.amount;
-      referrer.referralEarnings = (referrer.referralEarnings || 0) + r.amount;
-
-      if (state.currentUser && state.currentUser.id === referrer.id) {
-        state.currentUser = referrer;
-        renderUserDashboard();
-        flashBalance();
+  window.__approveRef = async function (id) {
+    try {
+      const refs = state.allReferrals || [];
+      const r = refs.find(x => x.id === id);
+      if (!r || r.status !== 'pending') return;
+      await window.firebase.updateRef(id, { status: 'approved' });
+      const referrer = state.allUsers.find(u => u.id === r.referrerId);
+      if (referrer) {
+        await window.firebase.updateUser(referrer.id, {
+          balance: (referrer.balance || 0) + r.amount,
+          referralEarnings: (referrer.referralEarnings || 0) + r.amount
+        });
       }
-    }
-
-    db.transactions.unshift({
-      id: 't_' + Date.now(),
-      userId: r.referrerId,
-      userEmail: r.referrerEmail || 'referrer',
-      type: 'referral_commission',
-      amount: r.amount,
-      status: 'completed',
-      createdAt: Date.now()
-    });
-    saveDB(); renderAdminPanel();
-    toast('Referral approved!');
+      await window.firebase.addTx({
+        userId: r.referrerId,
+        userEmail: r.referrerEmail || 'referrer',
+        type: 'referral_commission',
+        amount: r.amount,
+        status: 'completed'
+      });
+      await loadAdminData();
+      renderAdminPanel();
+      toast('Referral approved!');
+    } catch (e) { toast('Approval failed: ' + (e.message || e), true); }
   };
 
-  window.__approveWithdraw = function (id) {
-    const w = db.withdrawals.find(x => x.id === id);
-    if (!w || w.status !== 'pending') return;
-    w.status = 'approved';
-    saveDB(); renderAdminPanel(); toast('Withdrawal approved!');
+  window.__approveWithdraw = async function (id) {
+    try {
+      await window.firebase.updateWithdraw(id, { status: 'approved' });
+      await loadAdminData();
+      renderAdminPanel();
+      toast('Withdrawal approved!');
+    } catch (e) { toast('Approval failed', true); }
   };
 
-  window.__setStatus = function (userId, status) {
-    const u = db.users.find(x => x.id === userId);
-    if (!u) return;
-    u.status = status;
-    saveDB(); renderAdminPanel(); toast(`User status set to: ${status}`);
+  window.__setStatus = async function (userId, status) {
+    try {
+      await window.firebase.updateUser(userId, { status });
+      await loadAdminData();
+      renderAdminPanel();
+      toast(`User status set to: ${status}`);
+    } catch (e) { toast('Update failed', true); }
   };
 
-  window.__approveKey = function (txId) {
-    const tx = db.transactions.find(t => t.id === txId);
-    if (!tx || tx.status !== 'pending') return;
-    tx.status = 'completed';
-
-    const u = db.users.find(x => x.id === tx.userId);
-    if (u) {
-      u.keyApproved = true;
-      u.hasKey = true;
-      u.pendingKey = false;
-      u.appsInstalledToday = 0;
-      u.installedToday = [];
-      u.lastInstallDate = new Date().toDateString();
-      u.status = tx.type === 'upgrade' ? 'Upgraded' : 'Key bought';
-      state.basket = null;
-
-      if (u.referredBy) {
-        const referrer = db.users.find(x => x.id === u.referredBy);
-        if (referrer) {
-          db.referrals.push({
-            id: 'r_' + Date.now(),
-            referrerId: referrer.id,
-            referrerEmail: referrer.email,
-            referredUserId: u.id,
-            referredEmail: u.email,
-            amount: tx.amount * 0.30,
-            status: 'pending',
-            createdAt: Date.now()
-          });
+  window.__approveKey = async function (txId) {
+    try {
+      const tx = (state.allTransactions || []).find(t => t.id === txId);
+      if (!tx || tx.status !== 'pending') return;
+      await window.firebase.updateTx(txId, { status: 'completed' });
+      const u = state.allUsers.find(x => x.id === tx.userId);
+      if (u) {
+        await window.firebase.updateUser(u.id, {
+          keyApproved: true, hasKey: true, pendingKey: false,
+          appsInstalledToday: 0, installedToday: [],
+          lastInstallDate: new Date().toDateString(),
+          status: tx.type === 'upgrade' ? 'Upgraded' : 'Key bought'
+        });
+        if (u.referredBy) {
+          const referrer = state.allUsers.find(x => x.id === u.referredBy);
+          if (referrer) {
+            await window.firebase.addRef({
+              referrerId: referrer.id,
+              referrerEmail: referrer.email,
+              referredUserId: u.id,
+              referredEmail: u.email,
+              amount: tx.amount * 0.30,
+              status: 'pending'
+            });
+          }
         }
       }
-    }
-    saveDB(); renderAdminPanel();
-    toast('Key approved — user apps unlocked');
+      await loadAdminData();
+      renderAdminPanel();
+      toast('Key approved — user apps unlocked');
+    } catch (e) { toast('Approval failed: ' + (e.message || e), true); }
   };
 
-  window.__rejectKey = function (txId) {
-    const tx = db.transactions.find(t => t.id === txId);
-    if (!tx || tx.status !== 'pending') return;
-    tx.status = 'rejected';
-    const u = db.users.find(x => x.id === tx.userId);
-    if (u) {
-      u.pendingKey = false;
-      u.keyApproved = false;
-      u.hasKey = false;
-      u.status = 'Key rejected';
-    }
-    saveDB(); renderAdminPanel();
-    toast('Key rejected', true);
+  window.__rejectKey = async function (txId) {
+    try {
+      const tx = (state.allTransactions || []).find(t => t.id === txId);
+      if (!tx || tx.status !== 'pending') return;
+      await window.firebase.updateTx(txId, { status: 'rejected' });
+      const u = state.allUsers.find(x => x.id === tx.userId);
+      if (u) {
+        await window.firebase.updateUser(u.id, {
+          pendingKey: false, keyApproved: false, hasKey: false, status: 'Key rejected'
+        });
+      }
+      await loadAdminData();
+      renderAdminPanel();
+      toast('Key rejected', true);
+    } catch (e) { toast('Reject failed', true); }
   };
 
-  window.__deleteUser = function (userId) {
-    const u = db.users.find(x => x.id === userId);
+  window.__deleteUser = async function (userId) {
+    const u = state.allUsers.find(x => x.id === userId);
     if (!u) return;
-    if (u.email === ADMIN_EMAIL) return toast('Cannot delete the admin account', true);
-
+    if (u.email === window.firebase.ADMIN_EMAIL) return toast('Cannot delete the admin account', true);
     const confirmMsg = `Delete "${u.name}" (${u.email}) and ALL their records?\n\n` +
-      `• Transactions\n• Withdrawals\n• Referral entries\n• Login history\n\nThis cannot be undone.`;
+      `• Transactions\n• Withdrawals\n• Referral entries\n\nThis cannot be undone.`;
     if (!confirm(confirmMsg)) return;
-
-    db.transactions = db.transactions.filter(t => t.userId !== userId && t.userEmail !== u.email);
-    db.withdrawals = db.withdrawals.filter(w => w.userId !== userId && w.userEmail !== u.email);
-    db.referrals = db.referrals.filter(r =>
-      r.referrerId !== userId &&
-      r.referredUserId !== userId &&
-      r.referrerEmail !== u.email &&
-      r.referredEmail !== u.email
-    );
-    db.logins = db.logins.filter(l => l.email !== u.email);
-    db.users = db.users.filter(x => x.id !== userId);
-
-    if (state.currentUser && state.currentUser.id === userId) {
-      state.currentUser = null;
-      state.currentUserId = null;
-      state.isAdmin = false;
-      state.dailyApps = null;
-      state.basket = null;
-      hideAll();
-      if (authScreen) authScreen.classList.remove('hidden');
-    }
-    saveDB();
-    renderAdminPanel();
-    toast('User and all associated records deleted');
+    try {
+      await window.firebase.deleteUser(userId);
+      await loadAdminData();
+      renderAdminPanel();
+      toast('User and all associated records deleted');
+    } catch (e) { toast('Delete failed: ' + (e.message || e), true); }
   };
 
   const savePaybillBtn = $('savePaybillBtn');
-  if (savePaybillBtn) savePaybillBtn.addEventListener('click', () => {
-    db.settings.paybill = $('paybillInput').value.trim() || '400200';
-    db.settings.account = $('accInput').value.trim() || 'APPCLOUD';
-    saveDB();
-    toast('Settings saved!');
+  if (savePaybillBtn) savePaybillBtn.addEventListener('click', async () => {
+    try {
+      await window.firebase.saveSettings({
+        paybill: $('paybillInput').value.trim() || '400200',
+        account: $('accInput').value.trim() || 'APPCLOUD'
+      });
+      toast('Settings saved!');
+    } catch (e) { toast('Save failed', true); }
   });
 
   // ============================================================
-  // APP STRIP
+  // APP STRIP (marquee)
   // ============================================================
   const STRIP_APPS = [
-    { name: 'WhatsApp', icon: '💬' }, { name: 'Instagram', icon: '📸' }, { name: 'TikTok', icon: '🎵' },
-    { name: 'Facebook', icon: '📘' }, { name: 'YouTube', icon: '▶️' }, { name: 'Spotify', icon: '🎧' },
-    { name: 'Netflix', icon: '🎬' }, { name: 'X', icon: '🐦' }, { name: 'Snapchat', icon: '👻' },
-    { name: 'Telegram', icon: '✈️' }, { name: 'Pinterest', icon: '📌' }, { name: 'Reddit', icon: '🤖' },
-    { name: 'Discord', icon: '🎮' }, { name: 'Twitch', icon: '🟣' }, { name: 'LinkedIn', icon: '💼' },
-    { name: 'Zoom', icon: '📹' }, { name: 'Slack', icon: '💬' }, { name: 'Notion', icon: '📝' },
-    { name: 'Figma', icon: '🎨' }, { name: 'Canva', icon: '🖼️' }, { name: 'Dropbox', icon: '📦' },
-    { name: 'Google Drive', icon: '🗂️' }, { name: 'Gmail', icon: '📧' }, { name: 'Maps', icon: '🗺️' },
-    { name: 'Uber', icon: '🚗' }, { name: 'Bolt', icon: '⚡' }, { name: 'Airbnb', icon: '🏠' },
-    { name: 'Booking.com', icon: '🏨' }, { name: 'Amazon', icon: '🛒' }, { name: 'eBay', icon: '🏷️' },
-    { name: 'AliExpress', icon: '📦' }, { name: 'Shopify', icon: '🛍️' }, { name: 'PayPal', icon: '💳' },
-    { name: 'Revolut', icon: '💠' }, { name: 'Binance', icon: '🪙' }, { name: 'Coinbase', icon: '🔵' },
-    { name: 'Kraken', icon: '🐙' }, { name: 'MetaMask', icon: '🦊' }, { name: 'Trust Wallet', icon: '🛡️' },
-    { name: 'M-Pesa', icon: '📲' }, { name: 'Airtel Money', icon: '🔴' }, { name: 'Equity Bank', icon: '🏦' },
-    { name: 'KCB', icon: '🏦' }, { name: 'Mpesa App', icon: '💚' }, { name: 'Chrome', icon: '🌐' },
-    { name: 'Firefox', icon: '🦊' }, { name: 'Edge', icon: '🌊' }, { name: 'Safari', icon: '🧭' },
-    { name: 'Opera', icon: '🎭' }, { name: 'Brave', icon: '🦁' }, { name: 'VLC', icon: '🎞️' },
-    { name: 'Spotify Kids', icon: '🧸' }, { name: 'Audible', icon: '🎙️' }, { name: 'Kindle', icon: '📖' },
-    { name: 'Goodreads', icon: '📚' }, { name: 'Duolingo', icon: '🦉' }, { name: 'Khan Academy', icon: '🎓' },
-    { name: 'Coursera', icon: '📘' }, { name: 'Udemy', icon: '🎯' }, { name: 'Skillshare', icon: '🎨' },
-    { name: 'Medium', icon: '✍️' }, { name: 'Substack', icon: '📰' }, { name: 'Quora', icon: '❓' },
-    { name: 'Stack Overflow', icon: '💻' }, { name: 'GitHub', icon: '🐙' }, { name: 'GitLab', icon: '🦊' },
-    { name: 'Bitbucket', icon: '🪣' }, { name: 'Vercel', icon: '▲' }, { name: 'Netlify', icon: '🟢' },
-    { name: 'Cloudflare', icon: '☁️' }, { name: 'AWS', icon: '🟠' }, { name: 'Azure', icon: '🔷' },
-    { name: 'GCP', icon: '🔵' }, { name: 'DigitalOcean', icon: '🌊' }, { name: 'Linode', icon: '🟩' },
-    { name: 'Heroku', icon: '🟣' }, { name: 'Render', icon: '🎨' }, { name: 'Railway', icon: '🚂' },
-    { name: 'Supabase', icon: '⚡' }, { name: 'Firebase', icon: '🔥' }, { name: 'MongoDB', icon: '🍃' },
-    { name: 'Postgres', icon: '🐘' }, { name: 'MySQL', icon: '🐬' }, { name: 'Redis', icon: '🔴' },
-    { name: 'Docker', icon: '🐳' }, { name: 'Kubernetes', icon: '☸️' }, { name: 'Terraform', icon: '🏗️' },
-    { name: 'Ansible', icon: '⚙️' }, { name: 'Jenkins', icon: '🤵' }, { name: 'CircleCI', icon: '⭕' },
-    { name: 'Travis CI', icon: '🚦' }, { name: 'Postman', icon: '📮' }, { name: 'Insomnia', icon: '🌙' },
-    { name: 'Swagger', icon: '🦢' }, { name: 'GraphQL', icon: '🕸️' }, { name: 'Apollo', icon: '🚀' },
-    { name: 'Prisma', icon: '🔺' }, { name: 'Drizzle', icon: '💧' }, { name: 'TypeORM', icon: '📘' },
-    { name: 'Sequelize', icon: '🔷' }, { name: 'Mongoose', icon: '🐹' }, { name: 'NestJS', icon: '🐱' },
-    { name: 'Next.js', icon: '▲' }, { name: 'Nuxt', icon: '🟩' }, { name: 'SvelteKit', icon: '🔥' },
-    { name: 'Remix', icon: '💿' }, { name: 'Astro', icon: '🚀' }, { name: 'Vite', icon: '⚡' },
-    { name: 'Webpack', icon: '📦' }, { name: 'Rollup', icon: '🎯' }, { name: 'Parcel', icon: '📦' },
-    { name: 'esbuild', icon: '⚡' }, { name: 'Bun', icon: '🥟' }, { name: 'Deno', icon: '🦕' },
-    { name: 'Node.js', icon: '🟢' }, { name: 'React', icon: '⚛️' }, { name: 'Vue', icon: '🟩' },
-    { name: 'Angular', icon: '🅰️' }, { name: 'Svelte', icon: '🔥' }, { name: 'Solid', icon: '🔷' },
-    { name: 'Qwik', icon: '⚡' }, { name: 'Preact', icon: '⚛️' }, { name: 'Lit', icon: '🔥' },
-    { name: 'Alpine', icon: '🏔️' }, { name: 'HTMX', icon: '🔗' }, { name: 'Tailwind', icon: '🌬️' },
-    { name: 'Bootstrap', icon: '🅱️' }, { name: 'Material UI', icon: '🎨' }, { name: 'Chakra UI', icon: '⚡' },
-    { name: 'Ant Design', icon: '🐜' }, { name: 'Mantine', icon: '🎭' }, { name: 'Radix', icon: '🔺' },
-    { name: 'Shadcn UI', icon: '🎨' }, { name: 'Headless UI', icon: '👻' }, { name: 'Framer Motion', icon: '🎞️' },
-    { name: 'GSAP', icon: '🎬' }, { name: 'Three.js', icon: '🎲' }, { name: 'Babylon.js', icon: '🏛️' },
-    { name: 'D3.js', icon: '📊' }, { name: 'Chart.js', icon: '📈' }, { name: 'ECharts', icon: '📉' },
-    { name: 'Recharts', icon: '📊' }, { name: 'Mapbox', icon: '🗺️' }, { name: 'Leaflet', icon: '🍃' },
-    { name: 'OpenLayers', icon: '🌍' }, { name: 'Turf.js', icon: '🌱' }, { name: 'Socket.io', icon: '🔌' },
-    { name: 'Pusher', icon: '📡' }, { name: 'Ably', icon: '⚡' }, { name: 'Supabase RT', icon: '⚡' },
-    { name: 'Firebase RT', icon: '🔥' }, { name: 'Amplify', icon: '📱' }, { name: 'Appwrite', icon: '🅰️' },
-    { name: 'Nhost', icon: '🟣' }, { name: 'PocketBase', icon: '📮' }, { name: 'Directus', icon: '🎯' },
-    { name: 'Strapi', icon: '🚀' }, { name: 'Sanity', icon: '🧠' }, { name: 'Contentful', icon: '📝' },
-    { name: 'Prismic', icon: '🔷' }, { name: 'Storyblok', icon: '📖' }, { name: 'WordPress', icon: '📰' },
-    { name: 'Webflow', icon: '🌊' }, { name: 'Framer', icon: '🎞️' }, { name: 'Wix', icon: '🟡' },
-    { name: 'Squarespace', icon: '⬛' }, { name: 'Shopify Plus', icon: '🛍️' }, { name: 'WooCommerce', icon: '🛒' },
-    { name: 'Magento', icon: '🟠' }, { name: 'BigCommerce', icon: '🔵' }, { name: 'PrestaShop', icon: '🟣' },
-    { name: 'OpenCart', icon: '🛒' }, { name: 'Stripe', icon: '💳' }, { name: 'Razorpay', icon: '💠' },
-    { name: 'Paystack', icon: '💰' }, { name: 'Flutterwave', icon: '🌊' }, { name: 'Pesapal', icon: '📲' },
-    { name: 'IntaSend', icon: '📤' }, { name: 'PayU', icon: '💳' }, { name: 'Adyen', icon: '🏦' },
-    { name: 'Klarna', icon: '🛍️' }, { name: 'Affirm', icon: '✅' }, { name: 'Afterpay', icon: '🅰️' },
-    { name: 'Zip', icon: '⚡' }, { name: 'M-Pesa Global', icon: '🌍' }, { name: 'Wave', icon: '🌊' },
-    { name: 'Chipper Cash', icon: '💵' }, { name: 'Kuda', icon: '🟣' }, { name: 'Monzo', icon: '🟠' },
-    { name: 'N26', icon: '⬛' }, { name: 'Wise', icon: '🟢' }, { name: 'Payoneer', icon: '🟠' },
-    { name: 'Skrill', icon: '🟣' }, { name: 'Neteller', icon: '🔷' }, { name: 'Payeer', icon: '💳' },
-    { name: 'Perfect Money', icon: '💵' }, { name: 'AdvCash', icon: '💰' }
+    { name: 'WhatsApp' }, { name: 'Instagram' }, { name: 'TikTok' },
+    { name: 'Facebook' }, { name: 'YouTube' }, { name: 'Spotify' },
+    { name: 'Netflix' }, { name: 'X' }, { name: 'Snapchat' },
+    { name: 'Telegram' }, { name: 'Pinterest' }, { name: 'Reddit' },
+    { name: 'Discord' }, { name: 'Twitch' }, { name: 'LinkedIn' },
+    { name: 'Zoom' }, { name: 'Slack' }, { name: 'Notion' },
+    { name: 'Figma' }, { name: 'Canva' }, { name: 'Dropbox' },
+    { name: 'Google Drive' }, { name: 'Gmail' }, { name: 'Maps' },
+    { name: 'Uber' }, { name: 'Bolt' }, { name: 'Airbnb' },
+    { name: 'Booking' }, { name: 'Amazon' }, { name: 'eBay' },
+    { name: 'AliExpress' }, { name: 'Shopify' }, { name: 'PayPal' },
+    { name: 'Revolut' }, { name: 'Binance' }, { name: 'Coinbase' },
+    { name: 'Kraken' }, { name: 'MetaMask' }, { name: 'Trust Wallet' },
+    { name: 'M-Pesa' }, { name: 'Airtel Money' }, { name: 'Equity Bank' },
+    { name: 'KCB' }, { name: 'Chrome' }, { name: 'Firefox' },
+    { name: 'Edge' }, { name: 'Safari' }, { name: 'Opera' },
+    { name: 'Brave' }, { name: 'VLC' }, { name: 'Audible' },
+    { name: 'Kindle' }, { name: 'Goodreads' }, { name: 'Duolingo' },
+    { name: 'Khan Academy' }, { name: 'Coursera' }, { name: 'Udemy' },
+    { name: 'Skillshare' }, { name: 'Medium' }, { name: 'Substack' },
+    { name: 'Quora' }, { name: 'Stack Overflow' }, { name: 'GitHub' },
+    { name: 'GitLab' }, { name: 'Bitbucket' }, { name: 'Vercel' },
+    { name: 'Netlify' }, { name: 'Cloudflare' }, { name: 'AWS' },
+    { name: 'Azure' }, { name: 'GCP' }, { name: 'DigitalOcean' },
+    { name: 'Linode' }, { name: 'Heroku' }, { name: 'Render' },
+    { name: 'Railway' }, { name: 'Supabase' }, { name: 'Firebase' },
+    { name: 'MongoDB' }, { name: 'Postgres' }, { name: 'MySQL' },
+    { name: 'Redis' }, { name: 'Docker' }, { name: 'Kubernetes' },
+    { name: 'Terraform' }, { name: 'Ansible' }, { name: 'Jenkins' },
+    { name: 'CircleCI' }, { name: 'Postman' }, { name: 'Insomnia' },
+    { name: 'Swagger' }, { name: 'GraphQL' }, { name: 'Apollo' },
+    { name: 'Prisma' }, { name: 'Drizzle' }, { name: 'NestJS' },
+    { name: 'Next.js' }, { name: 'Nuxt' }, { name: 'SvelteKit' },
+    { name: 'Astro' }, { name: 'Vite' }, { name: 'Webpack' },
+    { name: 'Rollup' }, { name: 'Parcel' }, { name: 'esbuild' },
+    { name: 'Bun' }, { name: 'Deno' }, { name: 'Node.js' },
+    { name: 'React' }, { name: 'Vue' }, { name: 'Angular' },
+    { name: 'Svelte' }, { name: 'Solid' }, { name: 'Qwik' },
+    { name: 'Preact' }, { name: 'Lit' }, { name: 'Alpine' },
+    { name: 'HTMX' }, { name: 'Tailwind' }, { name: 'Bootstrap' },
+    { name: 'Material UI' }, { name: 'Chakra UI' }, { name: 'Ant Design' },
+    { name: 'Mantine' }, { name: 'Radix' }, { name: 'Shadcn UI' },
+    { name: 'Headless UI' }, { name: 'Framer Motion' }, { name: 'GSAP' },
+    { name: 'Three.js' }, { name: 'Babylon.js' }, { name: 'D3.js' },
+    { name: 'Chart.js' }, { name: 'ECharts' }, { name: 'Recharts' },
+    { name: 'Mapbox' }, { name: 'Leaflet' }, { name: 'OpenLayers' },
+    { name: 'Turf.js' }, { name: 'Socket.io' }, { name: 'Pusher' },
+    { name: 'Ably' }, { name: 'Amplify' }, { name: 'Appwrite' },
+    { name: 'Nhost' }, { name: 'PocketBase' }, { name: 'Directus' },
+    { name: 'Strapi' }, { name: 'Sanity' }, { name: 'Contentful' },
+    { name: 'Prismic' }, { name: 'Storyblok' }, { name: 'WordPress' },
+    { name: 'Webflow' }, { name: 'Framer' }, { name: 'Wix' },
+    { name: 'Squarespace' }, { name: 'WooCommerce' }, { name: 'Magento' },
+    { name: 'BigCommerce' }, { name: 'PrestaShop' }, { name: 'OpenCart' },
+    { name: 'Stripe' }, { name: 'Razorpay' }, { name: 'Paystack' },
+    { name: 'Flutterwave' }, { name: 'Pesapal' }, { name: 'IntaSend' },
+    { name: 'PayU' }, { name: 'Adyen' }, { name: 'Klarna' },
+    { name: 'Affirm' }, { name: 'Afterpay' }, { name: 'Zip' },
+    { name: 'Wave' }, { name: 'Chipper Cash' }, { name: 'Kuda' },
+    { name: 'Monzo' }, { name: 'N26' }, { name: 'Wise' },
+    { name: 'Payoneer' }, { name: 'Skrill' }, { name: 'Neteller' },
+    { name: 'Payeer' }, { name: 'AdvCash' }
   ];
 
   let stripInitialized = false;
@@ -1360,7 +1377,7 @@
         const el = document.createElement('div');
         el.className = 'strip-app';
         el.innerHTML = `
-          <div class="strip-icon">${app.icon}</div>
+          <div class="strip-icon">${iconImg(app.name, 46)}</div>
           <div class="strip-name">${app.name}</div>
         `;
         stripEl.appendChild(el);
@@ -1374,14 +1391,11 @@
     const strip2 = $('appStrip2');
     if (!strip1 || !strip2) return;
     buildStrip(strip1, STRIP_APPS);
-    const reversed = [...STRIP_APPS].reverse();
-    buildStrip(strip2, reversed);
+    buildStrip(strip2, [...STRIP_APPS].reverse());
     stripInitialized = true;
   }
 
-  function stopAppStrip() {
-    stripInitialized = false;
-  }
+  function stopAppStrip() { stripInitialized = false; }
 
   // ============================================================
   // URL REFERRAL
@@ -1412,8 +1426,11 @@
   // ============================================================
   // INIT
   // ============================================================
-  hideAll();
-  if (authScreen) authScreen.classList.remove('hidden');
+  (async () => {
+    showAuth();
+    await firebaseReady();
+    await checkAuthState();
+  })();
 
-  window.__appCloud = { state, db, DB, saveDB, LEVELS, APPS };
+  window.__appCloud = { state, LEVELS, APP_POOL };
 })();
