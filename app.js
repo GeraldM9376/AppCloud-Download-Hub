@@ -316,7 +316,7 @@
   });
 
   // ============================================================
-  // LOGIN
+  // LOGIN — just triggers Firebase; onAuth handles the rest
   // ============================================================
   const loginBtn = $('loginBtn');
   if (loginBtn) loginBtn.addEventListener('click', async () => {
@@ -325,20 +325,8 @@
     if (!email || !pwd) return toast('Enter email and password', true);
 
     try {
-      const fbUser = await window.firebase.login(email, pwd);
-      const profile = await window.firebase.getUser(fbUser.uid);
-      if (!profile) return toast('Profile not found. Contact admin.', true);
-      state.currentUser = profile;
-      state.isAdmin = (email === window.firebase.ADMIN_EMAIL);
-
-      if (state.isAdmin) {
-        await loadAdminData();
-        showAdminPanel();
-      } else {
-        await loadUserData();
-        await resetDailyIfNeededLocal(profile);
-        showUserDashboard();
-      }
+      await window.firebase.login(email, pwd);
+      // 🎉 That's it. onAuth below will fetch the profile and switch screens.
     } catch (err) {
       const msg = (err && err.message) || 'Login failed';
       toast(msg.replace('Firebase: ', ''), true);
@@ -346,30 +334,46 @@
   });
 
   // ============================================================
-  // AUTO-LOGIN
+  // AUTO-LOGIN / POST-LOGIN ROUTER (the only place that sets state.currentUser)
   // ============================================================
   async function checkAuthState() {
     return new Promise(resolve => {
+      let firstFire = true;
       const unsub = window.firebase.onAuth(async (fbUser) => {
-        if (!fbUser) { resolve(false); return; }
+        if (!fbUser) {
+          if (firstFire) { resolve(false); firstFire = false; }
+          return;
+        }
+
         try {
           const profile = await window.firebase.getUser(fbUser.uid);
-          if (profile) {
-            state.currentUser = profile;
-            state.isAdmin = (fbUser.email === window.firebase.ADMIN_EMAIL);
-            if (state.isAdmin) {
-              await loadAdminData();
-              showAdminPanel();
-            } else {
-              await loadUserData();
-              await resetDailyIfNeededLocal(profile);
-              showUserDashboard();
-            }
+          if (!profile) {
+            toast('Profile not found. Contact admin.', true);
+            resolve(true);
+            return;
           }
-        } catch (e) { console.warn(e); }
-        resolve(true);
+
+          state.currentUser = profile;
+          state.isAdmin = (fbUser.email === window.firebase.ADMIN_EMAIL);
+
+          if (state.isAdmin) {
+            await loadAdminData();
+            showAdminPanel();
+          } else {
+            await loadUserData();
+            await resetDailyIfNeededLocal(profile);
+            showUserDashboard();
+          }
+        } catch (e) {
+          console.error('Auth routing error:', e);
+          toast('Failed to load profile: ' + (e.message || e), true);
+        }
+
+        if (firstFire) { resolve(true); firstFire = false; }
       });
-      setTimeout(() => { try { unsub(); } catch {} resolve(false); }, 2500);
+
+      // Timeout so we don't hang forever on the first load
+      setTimeout(() => { if (firstFire) { try { unsub(); } catch {} resolve(false); firstFire = false; } }, 2500);
     });
   }
 
