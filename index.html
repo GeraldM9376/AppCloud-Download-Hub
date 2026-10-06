@@ -263,6 +263,32 @@
   </div>
 </div>
 
+<!-- Firebase SDK + config -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
+  import { getAuth } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
+  import { getFirestore } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAZ3YSXC_tVY4UHGpoKN3QVoi9nHuNROZI",
+    authDomain: "appcloud-90ace.firebaseapp.com",
+    projectId: "appcloud-90ace",
+    storageBucket: "appcloud-90ace.firebasestorage.app",
+    messagingSenderId: "74216770225",
+    appId: "1:74216770225:web:3200c9ba24de0131a7f090"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  // Expose to app.js (plain script) via window
+  window.firebaseAuth = auth;
+  window.firebaseDb = db;
+  window.firebaseReady = true;
+  window.dispatchEvent(new Event('firebase-ready'));
+</script>
+
 <script src="app.js"></script>
-</body>
+</body>  
 </html>
