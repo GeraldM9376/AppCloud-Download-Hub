@@ -43,7 +43,6 @@
     5: { name: 'Level 5', appsPerDay: 90, keyPrice: 1500 }
   };
 
-  // Minimum withdrawal & referral requirement
   const MIN_WITHDRAWAL = 500;
   const REQUIRED_REFERRALS_FOR_WITHDRAWAL = 3;
 
@@ -239,7 +238,6 @@
     return 0;
   }
 
-  // Count the user's referrals (both pending and approved count)
   function countUserReferrals(userId) {
     return (state.userReferrals || []).filter(r => r.referrerId === userId).length;
   }
@@ -325,7 +323,7 @@
   });
 
   // ============================================================
-  // LOGIN — just triggers Firebase; onAuth handles the rest
+  // LOGIN
   // ============================================================
   const loginBtn = $('loginBtn');
   if (loginBtn) loginBtn.addEventListener('click', async () => {
@@ -343,21 +341,21 @@
 
   // ============================================================
   // AUTO-LOGIN / POST-LOGIN ROUTER
+  // Resolves on first auth state, no artificial delay
   // ============================================================
   async function checkAuthState() {
     return new Promise(resolve => {
-      let firstFire = true;
-      const unsub = window.firebase.onAuth(async (fbUser) => {
-        if (!fbUser) {
-          if (firstFire) { resolve(false); firstFire = false; }
-          return;
-        }
+      let resolved = false;
+      const done = (val) => { if (!resolved) { resolved = true; resolve(val); } };
+
+      window.firebase.onAuth(async (fbUser) => {
+        if (!fbUser) { done(false); return; }
 
         try {
           const profile = await window.firebase.getUser(fbUser.uid);
           if (!profile) {
             toast('Profile not found. Contact admin.', true);
-            resolve(true);
+            done(true);
             return;
           }
 
@@ -377,10 +375,11 @@
           toast('Failed to load profile: ' + (e.message || e), true);
         }
 
-        if (firstFire) { resolve(true); firstFire = false; }
+        done(true);
       });
 
-      setTimeout(() => { if (firstFire) { try { unsub(); } catch {} resolve(false); firstFire = false; } }, 2500);
+      // Fallback: if Firebase hasn't responded in 4s, show auth screen
+      setTimeout(() => done(false), 4000);
     });
   }
 
@@ -613,16 +612,6 @@
     const refCount = refs.filter(r => r.referrerId === u.id).length;
     const rcEl = $('referredCount'); if (rcEl) rcEl.textContent = refCount;
 
-    // Show withdrawal eligibility info
-    const eligibilityEl = $('withdrawEligibility');
-    if (eligibilityEl) {
-      if (refCount >= REQUIRED_REFERRALS_FOR_WITHDRAWAL) {
-        eligibilityEl.innerHTML = `<span style="color:#b0ffd8;">✅ Withdrawal unlocked (${refCount} referrals)</span>`;
-      } else {
-        eligibilityEl.innerHTML = `<span style="color:#ffd48a;">⚠️ Refer ${REQUIRED_REFERRALS_FOR_WITHDRAWAL - refCount} more user(s) to unlock withdrawals (${refCount}/${REQUIRED_REFERRALS_FOR_WITHDRAWAL})</span>`;
-      }
-    }
-
     const lifetimeReferral = refs
       .filter(r => r.referrerId === u.id && r.status === 'approved')
       .reduce((s, r) => s + (r.amount || 0), 0);
@@ -672,72 +661,93 @@
 
     const container = $('appListContainer');
     if (!container) return;
-    container.innerHTML = '';
-    const installedIds = Array.isArray(u.installedToday) ? u.installedToday : [];
 
-    state.basket.forEach(app => {
-      const appId = app.id;
-      const download = state.activeDownloads[appId];
-      const isDownloading = !!download;
-      const isDone = installedIds.includes(appId);
-      const atLimit = (u.appsInstalledToday || 0) >= limit;
+    // Only rebuild list if basket changed (avoids re-render flicker on progress ticks)
+    const basketSig = state.basket.map(a => a.id).join(',');
+    const needsRebuild = container.dataset.basketSig !== basketSig;
 
-      const item = document.createElement('div');
-      item.className = 'app-item' + (!unlocked ? ' locked' : '') + (isDone ? ' installed' : '');
+    if (needsRebuild) {
+      container.dataset.basketSig = basketSig;
+      container.innerHTML = '';
+      const installedIds = Array.isArray(u.installedToday) ? u.installedToday : [];
 
-      const leftDiv = document.createElement('div');
-      leftDiv.className = 'app-info';
-      leftDiv.innerHTML = `
-        <div class="app-icon">${iconImg(app.name, 44)}</div>
-        <div>
-          <div class="app-name">${app.name}</div>
-          <span class="app-payout">Earn Ksh ${app.payout}</span>
-        </div>
-      `;
+      state.basket.forEach(app => {
+        const appId = app.id;
+        const download = state.activeDownloads[appId];
+        const isDownloading = !!download;
+        const isDone = installedIds.includes(appId);
+        const atLimit = (u.appsInstalledToday || 0) >= limit;
 
-      const rightDiv = document.createElement('div');
-      rightDiv.style.minWidth = '220px';
-      rightDiv.style.display  = 'flex';
-      rightDiv.style.justifyContent = 'flex-end';
+        const item = document.createElement('div');
+        item.className = 'app-item' + (!unlocked ? ' locked' : '') + (isDone ? ' installed' : '');
+        item.dataset.appId = appId;
 
-      if (!unlocked) {
-        const lock = document.createElement('button');
-        lock.className = 'install-btn btn btn-sm';
-        lock.textContent = u.pendingKey ? 'Awaiting approval' : 'Key required';
-        lock.disabled = true;
-        rightDiv.appendChild(lock);
-      } else if (isDone) {
-        const done = document.createElement('span');
-        done.className = 'installed-chip';
-        done.textContent = '✅ Downloaded';
-        rightDiv.appendChild(done);
-      } else if (isDownloading) {
-        const progress = download.progress || 0;
-        rightDiv.innerHTML = `
-          <div class="progress-row">
-            <div class="progress-bar-bg">
-              <div class="progress-fill" style="width:${progress}%;"></div>
-            </div>
-            <span class="progress-percent">${Math.floor(progress)}%</span>
+        const leftDiv = document.createElement('div');
+        leftDiv.className = 'app-info';
+        leftDiv.innerHTML = `
+          <div class="app-icon">${iconImg(app.name, 44)}</div>
+          <div>
+            <div class="app-name">${app.name}</div>
+            <span class="app-payout">Earn Ksh ${app.payout}</span>
           </div>
         `;
-      } else {
-        const btn = document.createElement('button');
-        btn.className = 'install-btn btn btn-sm';
-        btn.textContent = atLimit ? 'Limit reached' : 'Download to cloud';
-        btn.disabled = atLimit;
-        btn.addEventListener('click', () => startDownload(app));
-        rightDiv.appendChild(btn);
-      }
 
-      item.appendChild(leftDiv);
-      item.appendChild(rightDiv);
-      container.appendChild(item);
-    });
+        const rightDiv = document.createElement('div');
+        rightDiv.className = 'app-action';
+        rightDiv.style.minWidth = '220px';
+        rightDiv.style.display  = 'flex';
+        rightDiv.style.justifyContent = 'flex-end';
+
+        if (!unlocked) {
+          const lock = document.createElement('button');
+          lock.className = 'install-btn btn btn-sm';
+          lock.textContent = u.pendingKey ? 'Awaiting approval' : 'Key required';
+          lock.disabled = true;
+          rightDiv.appendChild(lock);
+        } else if (isDone) {
+          const done = document.createElement('span');
+          done.className = 'installed-chip';
+          done.textContent = '✅ Downloaded';
+          rightDiv.appendChild(done);
+        } else if (isDownloading) {
+          rightDiv.innerHTML = `
+            <div class="progress-row">
+              <div class="progress-bar-bg">
+                <div class="progress-fill" style="width:${download.progress || 0}%;"></div>
+              </div>
+              <span class="progress-percent">${Math.floor(download.progress || 0)}%</span>
+            </div>
+          `;
+        } else {
+          const btn = document.createElement('button');
+          btn.className = 'install-btn btn btn-sm';
+          btn.textContent = atLimit ? 'Limit reached' : 'Download to cloud';
+          btn.disabled = atLimit;
+          btn.addEventListener('click', () => startDownload(app));
+          rightDiv.appendChild(btn);
+        }
+
+        item.appendChild(leftDiv);
+        item.appendChild(rightDiv);
+        container.appendChild(item);
+      });
+    } else {
+      // Just update progress bars in place — no flicker
+      state.basket.forEach(app => {
+        const download = state.activeDownloads[app.id];
+        if (!download) return;
+        const item = container.querySelector(`[data-app-id="${app.id}"]`);
+        if (!item) return;
+        const fill = item.querySelector('.progress-fill');
+        const pct  = item.querySelector('.progress-percent');
+        if (fill) fill.style.width = `${download.progress || 0}%`;
+        if (pct)  pct.textContent = `${Math.floor(download.progress || 0)}%`;
+      });
+    }
   }
 
   // ============================================================
-  // DOWNLOAD (formerly INSTALL)
+  // DOWNLOAD (cloud)
   // ============================================================
   function flashBalance() {
     const el = $('userBalanceDisplay');
@@ -760,14 +770,27 @@
     const startTime = Date.now();
     state.activeDownloads[appId] = { progress: 0, startTime, duration };
 
+    // Force a rebuild so the "Install" button becomes a progress row
+    const container = $('appListContainer');
+    if (container) container.dataset.basketSig = '';
+
+    renderUserDashboard();
+
     const intervalId = setInterval(async () => {
       const dl = state.activeDownloads[appId];
       if (!dl) { clearInterval(intervalId); return; }
       const elapsed = Date.now() - dl.startTime;
       dl.progress = Math.min(100, (elapsed / duration) * 100);
 
+      // In-place update (no full re-render)
       if (state.currentUser && userDashboard && !userDashboard.classList.contains('hidden')) {
-        renderUserDashboard();
+        const item = document.querySelector(`[data-app-id="${appId}"]`);
+        if (item) {
+          const fill = item.querySelector('.progress-fill');
+          const pct  = item.querySelector('.progress-percent');
+          if (fill) fill.style.width = `${dl.progress}%`;
+          if (pct)  pct.textContent = `${Math.floor(dl.progress)}%`;
+        }
       }
 
       if (dl.progress >= 100) {
@@ -791,6 +814,9 @@
           });
         } catch (e) { console.warn('download write failed', e); }
 
+        // Rebuild once at completion to show the ✅ Downloaded chip
+        const containerEl = $('appListContainer');
+        if (containerEl) containerEl.dataset.basketSig = '';
         renderUserDashboard();
         flashBalance();
         toast(`Downloaded ${app.name} to cloud! +Ksh ${app.payout}`);
@@ -798,11 +824,15 @@
     }, 150);
 
     state.activeDownloads[appId].intervalId = intervalId;
-    renderUserDashboard();
   }
 
   // ============================================================
-  // WITHDRAWAL REQUEST  (requires 3 referrals + min Ksh 500)
+  // WITHDRAWAL REQUEST
+  // Validation order:
+  //   1. amount present & >= MIN_WITHDRAWAL
+  //   2. amount <= balance
+  //   3. phone & name present
+  //   4. referral requirement (only after everything else)
   // ============================================================
   const requestWithdrawBtn = $('requestWithdrawBtn');
   if (requestWithdrawBtn) requestWithdrawBtn.addEventListener('click', async () => {
@@ -813,19 +843,24 @@
     const phone9 = normalizePhone($('withdrawNumber').value);
     const name   = $('withdrawName').value.trim();
 
-    // Requirement: 3 referrals before withdrawal can be requested
+    // 1. Amount
+    if (!amount) return toast('Enter withdrawal amount', true);
+    if (amount < MIN_WITHDRAWAL) return toast(`Minimum withdrawal is Ksh ${MIN_WITHDRAWAL}`, true);
+    if (amount > (u.balance || 0)) return toast('Insufficient balance', true);
+
+    // 2. Phone & name
+    if (phone9.length !== 9) return toast('Enter a valid 9-digit M-Pesa number', true);
+    if (!name) return toast('Enter full name as per M-Pesa', true);
+
+    // 3. Referral requirement (last)
     const myRefCount = countUserReferrals(u.id);
     if (myRefCount < REQUIRED_REFERRALS_FOR_WITHDRAWAL) {
+      const need = REQUIRED_REFERRALS_FOR_WITHDRAWAL - myRefCount;
       return toast(
-        `Refer ${REQUIRED_REFERRALS_FOR_WITHDRAWAL - myRefCount} more user(s) before withdrawing (${myRefCount}/${REQUIRED_REFERRALS_FOR_WITHDRAWAL})`,
+        `Refer ${need} more user${need === 1 ? '' : 's'} to unlock withdrawals (${myRefCount}/${REQUIRED_REFERRALS_FOR_WITHDRAWAL})`,
         true
       );
     }
-
-    if (!amount || amount < MIN_WITHDRAWAL) return toast(`Minimum withdrawal is Ksh ${MIN_WITHDRAWAL}`, true);
-    if (amount > (u.balance || 0)) return toast('Insufficient balance', true);
-    if (phone9.length !== 9) return toast('Enter a valid 9-digit M-Pesa number', true);
-    if (!name) return toast('Enter full name as per M-Pesa', true);
 
     const fullPhone = '+254' + phone9;
 
@@ -1101,7 +1136,6 @@
           `).join('')
         : '<div class="text-muted" style="margin-top:6px;font-size:0.78rem;">No withdrawal requests yet</div>';
 
-      // Count referrals for this user
       const userRefCount = refs.filter(r => r.referrerId === u.id).length;
 
       return `
