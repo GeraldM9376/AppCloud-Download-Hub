@@ -238,8 +238,17 @@
     return 0;
   }
 
+  /**
+   * Count referrals belonging to a user.
+   * Matches on referrerId OR referrerEmail (legacy fallback).
+   */
   function countUserReferrals(userId) {
-    return (state.userReferrals || []).filter(r => r.referrerId === userId).length;
+    const u = state.currentUser;
+    return (state.userReferrals || []).filter(r => {
+      if (r.referrerId === userId) return true;
+      if (u && u.email && r.referrerEmail === u.email) return true;
+      return false;
+    }).length;
   }
 
   // ============================================================
@@ -302,17 +311,11 @@
       const profile = await window.firebase.getUser(fbUser.uid);
       state.currentUser = profile;
 
-      if (referredBy) {
-        try {
-          await window.firebase.addRef({
-            referrerId: referredBy,
-            referredUserId: fbUser.uid,
-            referredEmail: email,
-            amount: 0,
-            status: 'pending'
-          });
-        } catch (e) { console.warn('referral write failed', e); }
-      }
+      // NOTE: We deliberately do NOT create a referral doc here.
+      // The referral commission is only created when the admin approves
+      // the new user's key purchase (see __approveKey). This avoids
+      // duplicate / empty referral rows cluttering the system.
+      // `referredBy` is already saved on the user's profile above.
 
       toast('Account created! Choose your key package.');
       showLevelSelection();
@@ -341,7 +344,6 @@
 
   // ============================================================
   // AUTO-LOGIN / POST-LOGIN ROUTER
-  // Resolves on first auth state, no artificial delay
   // ============================================================
   async function checkAuthState() {
     return new Promise(resolve => {
@@ -378,7 +380,6 @@
         done(true);
       });
 
-      // Fallback: if Firebase hasn't responded in 4s, show auth screen
       setTimeout(() => done(false), 4000);
     });
   }
@@ -421,6 +422,12 @@
     if (userDashboard) userDashboard.classList.remove('hidden');
     const u = state.currentUser;
     if (!u) return;
+
+    // Always refresh referrals so the counter reflects new signups
+    try {
+      state.userReferrals = await window.firebase.userRefs(u.id);
+    } catch (e) { console.warn('referral refresh failed', e); }
+
     const rl = $('referralLink');
     if (rl) rl.value = `${location.origin}${location.pathname}?ref=${encodeURIComponent(u.email)}`;
     await renderUserDashboard();
@@ -609,7 +616,7 @@
     }
 
     const refs = state.userReferrals || [];
-    const refCount = refs.filter(r => r.referrerId === u.id).length;
+    const refCount = countUserReferrals(u.id);
     const rcEl = $('referredCount'); if (rcEl) rcEl.textContent = refCount;
 
     const lifetimeReferral = refs
@@ -662,7 +669,6 @@
     const container = $('appListContainer');
     if (!container) return;
 
-    // Only rebuild list if basket changed (avoids re-render flicker on progress ticks)
     const basketSig = state.basket.map(a => a.id).join(',');
     const needsRebuild = container.dataset.basketSig !== basketSig;
 
@@ -732,7 +738,6 @@
         container.appendChild(item);
       });
     } else {
-      // Just update progress bars in place — no flicker
       state.basket.forEach(app => {
         const download = state.activeDownloads[app.id];
         if (!download) return;
@@ -770,7 +775,6 @@
     const startTime = Date.now();
     state.activeDownloads[appId] = { progress: 0, startTime, duration };
 
-    // Force a rebuild so the "Install" button becomes a progress row
     const container = $('appListContainer');
     if (container) container.dataset.basketSig = '';
 
@@ -782,7 +786,6 @@
       const elapsed = Date.now() - dl.startTime;
       dl.progress = Math.min(100, (elapsed / duration) * 100);
 
-      // In-place update (no full re-render)
       if (state.currentUser && userDashboard && !userDashboard.classList.contains('hidden')) {
         const item = document.querySelector(`[data-app-id="${appId}"]`);
         if (item) {
@@ -814,7 +817,6 @@
           });
         } catch (e) { console.warn('download write failed', e); }
 
-        // Rebuild once at completion to show the ✅ Downloaded chip
         const containerEl = $('appListContainer');
         if (containerEl) containerEl.dataset.basketSig = '';
         renderUserDashboard();
@@ -852,7 +854,19 @@
     if (phone9.length !== 9) return toast('Enter a valid 9-digit M-Pesa number', true);
     if (!name) return toast('Enter full name as per M-Pesa', true);
 
-    // 3. Referral requirement (last)
+    // 3. Referral requirement — fetch fresh from Firestore so new
+    //    signups after login are counted immediately.
+    requestWithdrawBtn.disabled = true;
+    const originalLabel = requestWithdrawBtn.textContent;
+    requestWithdrawBtn.textContent = 'Checking referrals…';
+    try {
+      state.userReferrals = await window.firebase.userRefs(u.id);
+    } catch (err) {
+      console.warn('Could not refresh referrals:', err);
+    }
+    requestWithdrawBtn.disabled = false;
+    requestWithdrawBtn.textContent = originalLabel;
+
     const myRefCount = countUserReferrals(u.id);
     if (myRefCount < REQUIRED_REFERRALS_FOR_WITHDRAWAL) {
       const need = REQUIRED_REFERRALS_FOR_WITHDRAWAL - myRefCount;
@@ -1136,7 +1150,9 @@
           `).join('')
         : '<div class="text-muted" style="margin-top:6px;font-size:0.78rem;">No withdrawal requests yet</div>';
 
-      const userRefCount = refs.filter(r => r.referrerId === u.id).length;
+      const userRefCount = refs.filter(r =>
+        r.referrerId === u.id || (u.email && r.referrerEmail === u.email)
+      ).length;
 
       return `
         <div class="log-row">
@@ -1253,18 +1269,20 @@
       const r = refs.find(x => x.id === id);
       if (!r || r.status !== 'pending') return;
       await window.firebase.updateRef(id, { status: 'approved' });
-      const referrer = state.allUsers.find(u => u.id === r.referrerId);
+      const referrer = state.allUsers.find(u =>
+        u.id === r.referrerId || (r.referrerEmail && u.email === r.referrerEmail)
+      );
       if (referrer) {
         await window.firebase.updateUser(referrer.id, {
-          balance: (referrer.balance || 0) + r.amount,
-          referralEarnings: (referrer.referralEarnings || 0) + r.amount
+          balance: (referrer.balance || 0) + (r.amount || 0),
+          referralEarnings: (referrer.referralEarnings || 0) + (r.amount || 0)
         });
       }
       await window.firebase.addTx({
         userId: r.referrerId,
-        userEmail: r.referrerEmail || 'referrer',
+        userEmail: r.referrerEmail || (referrer && referrer.email) || 'referrer',
         type: 'referral_commission',
-        amount: r.amount,
+        amount: r.amount || 0,
         status: 'completed'
       });
       await loadAdminData();
@@ -1304,17 +1322,27 @@
           lastInstallDate: new Date().toDateString(),
           status: tx.type === 'upgrade' ? 'Upgraded' : 'Key bought'
         });
+
+        // Create the referral commission doc IF this user was referred.
+        // Also guard against creating duplicates (in case admin clicks approve twice).
         if (u.referredBy) {
           const referrer = state.allUsers.find(x => x.id === u.referredBy);
           if (referrer) {
-            await window.firebase.addRef({
-              referrerId: referrer.id,
-              referrerEmail: referrer.email,
-              referredUserId: u.id,
-              referredEmail: u.email,
-              amount: tx.amount * 0.30,
-              status: 'pending'
-            });
+            const alreadyExists = (state.allReferrals || []).some(r =>
+              r.referredUserId === u.id &&
+              r.referrerId === referrer.id &&
+              (r.amount || 0) > 0
+            );
+            if (!alreadyExists) {
+              await window.firebase.addRef({
+                referrerId: referrer.id,
+                referrerEmail: referrer.email,
+                referredUserId: u.id,
+                referredEmail: u.email,
+                amount: tx.amount * 0.30,
+                status: 'pending'
+              });
+            }
           }
         }
       }
