@@ -20,7 +20,7 @@
   const state = {
     currentUser: null,
     isAdmin: false,
-    activeInstallations: {},
+    activeDownloads: {},
     selectedLevel: 1,
     selectedUpgradeLevel: null,
     dailyApps: null,
@@ -36,12 +36,16 @@
   };
 
   const LEVELS = {
-    1: { name: 'Level 1', appsPerDay: 5,  keyPrice: 1000 },
-    2: { name: 'Level 2', appsPerDay: 15, keyPrice: 2000 },
-    3: { name: 'Level 3', appsPerDay: 30, keyPrice: 5000 },
-    4: { name: 'Level 4', appsPerDay: 50, keyPrice: 8000 },
-    5: { name: 'Level 5', appsPerDay: 90, keyPrice: 15000 }
+    1: { name: 'Level 1', appsPerDay: 5,  keyPrice: 300 },
+    2: { name: 'Level 2', appsPerDay: 15, keyPrice: 600 },
+    3: { name: 'Level 3', appsPerDay: 30, keyPrice: 900 },
+    4: { name: 'Level 4', appsPerDay: 50, keyPrice: 1200 },
+    5: { name: 'Level 5', appsPerDay: 90, keyPrice: 1500 }
   };
+
+  // Minimum withdrawal & referral requirement
+  const MIN_WITHDRAWAL = 500;
+  const REQUIRED_REFERRALS_FOR_WITHDRAWAL = 3;
 
   // ============================================================
   // APP POOL — 1000 apps
@@ -235,6 +239,11 @@
     return 0;
   }
 
+  // Count the user's referrals (both pending and approved count)
+  function countUserReferrals(userId) {
+    return (state.userReferrals || []).filter(r => r.referrerId === userId).length;
+  }
+
   // ============================================================
   // AUTH TABS
   // ============================================================
@@ -326,7 +335,6 @@
 
     try {
       await window.firebase.login(email, pwd);
-      // 🎉 That's it. onAuth below will fetch the profile and switch screens.
     } catch (err) {
       const msg = (err && err.message) || 'Login failed';
       toast(msg.replace('Firebase: ', ''), true);
@@ -334,7 +342,7 @@
   });
 
   // ============================================================
-  // AUTO-LOGIN / POST-LOGIN ROUTER (the only place that sets state.currentUser)
+  // AUTO-LOGIN / POST-LOGIN ROUTER
   // ============================================================
   async function checkAuthState() {
     return new Promise(resolve => {
@@ -372,7 +380,6 @@
         if (firstFire) { resolve(true); firstFire = false; }
       });
 
-      // Timeout so we don't hang forever on the first load
       setTimeout(() => { if (firstFire) { try { unsub(); } catch {} resolve(false); firstFire = false; } }, 2500);
     });
   }
@@ -606,6 +613,16 @@
     const refCount = refs.filter(r => r.referrerId === u.id).length;
     const rcEl = $('referredCount'); if (rcEl) rcEl.textContent = refCount;
 
+    // Show withdrawal eligibility info
+    const eligibilityEl = $('withdrawEligibility');
+    if (eligibilityEl) {
+      if (refCount >= REQUIRED_REFERRALS_FOR_WITHDRAWAL) {
+        eligibilityEl.innerHTML = `<span style="color:#b0ffd8;">✅ Withdrawal unlocked (${refCount} referrals)</span>`;
+      } else {
+        eligibilityEl.innerHTML = `<span style="color:#ffd48a;">⚠️ Refer ${REQUIRED_REFERRALS_FOR_WITHDRAWAL - refCount} more user(s) to unlock withdrawals (${refCount}/${REQUIRED_REFERRALS_FOR_WITHDRAWAL})</span>`;
+      }
+    }
+
     const lifetimeReferral = refs
       .filter(r => r.referrerId === u.id && r.status === 'approved')
       .reduce((s, r) => s + (r.amount || 0), 0);
@@ -660,8 +677,8 @@
 
     state.basket.forEach(app => {
       const appId = app.id;
-      const installation = state.activeInstallations[appId];
-      const isInstalling = !!installation;
+      const download = state.activeDownloads[appId];
+      const isDownloading = !!download;
       const isDone = installedIds.includes(appId);
       const atLimit = (u.appsInstalledToday || 0) >= limit;
 
@@ -692,10 +709,10 @@
       } else if (isDone) {
         const done = document.createElement('span');
         done.className = 'installed-chip';
-        done.textContent = '✅ Installed';
+        done.textContent = '✅ Downloaded';
         rightDiv.appendChild(done);
-      } else if (isInstalling) {
-        const progress = installation.progress || 0;
+      } else if (isDownloading) {
+        const progress = download.progress || 0;
         rightDiv.innerHTML = `
           <div class="progress-row">
             <div class="progress-bar-bg">
@@ -707,9 +724,9 @@
       } else {
         const btn = document.createElement('button');
         btn.className = 'install-btn btn btn-sm';
-        btn.textContent = atLimit ? 'Limit reached' : 'Install';
+        btn.textContent = atLimit ? 'Limit reached' : 'Download to cloud';
         btn.disabled = atLimit;
-        btn.addEventListener('click', () => startInstallation(app));
+        btn.addEventListener('click', () => startDownload(app));
         rightDiv.appendChild(btn);
       }
 
@@ -720,7 +737,7 @@
   }
 
   // ============================================================
-  // INSTALL
+  // DOWNLOAD (formerly INSTALL)
   // ============================================================
   function flashBalance() {
     const el = $('userBalanceDisplay');
@@ -729,7 +746,7 @@
     setTimeout(() => el.classList.remove('flash'), 700);
   }
 
-  function startInstallation(app) {
+  function startDownload(app) {
     const u = state.currentUser;
     if (!u) return;
     if (!u.keyApproved) return toast('Apps locked — key not yet approved', true);
@@ -737,25 +754,25 @@
     if ((u.appsInstalledToday || 0) >= cfg.appsPerDay) return toast('Daily limit reached', true);
 
     const appId = app.id;
-    if (state.activeInstallations[appId]) return;
+    if (state.activeDownloads[appId]) return;
 
     const duration = 30000;
     const startTime = Date.now();
-    state.activeInstallations[appId] = { progress: 0, startTime, duration };
+    state.activeDownloads[appId] = { progress: 0, startTime, duration };
 
     const intervalId = setInterval(async () => {
-      const inst = state.activeInstallations[appId];
-      if (!inst) { clearInterval(intervalId); return; }
-      const elapsed = Date.now() - inst.startTime;
-      inst.progress = Math.min(100, (elapsed / duration) * 100);
+      const dl = state.activeDownloads[appId];
+      if (!dl) { clearInterval(intervalId); return; }
+      const elapsed = Date.now() - dl.startTime;
+      dl.progress = Math.min(100, (elapsed / duration) * 100);
 
       if (state.currentUser && userDashboard && !userDashboard.classList.contains('hidden')) {
         renderUserDashboard();
       }
 
-      if (inst.progress >= 100) {
+      if (dl.progress >= 100) {
         clearInterval(intervalId);
-        delete state.activeInstallations[appId];
+        delete state.activeDownloads[appId];
 
         const newInstalled = Array.isArray(u.installedToday) ? [...u.installedToday] : [];
         if (!newInstalled.includes(appId)) newInstalled.push(appId);
@@ -772,20 +789,20 @@
             appsInstalledToday: newCount,
             installedToday: newInstalled
           });
-        } catch (e) { console.warn('install write failed', e); }
+        } catch (e) { console.warn('download write failed', e); }
 
         renderUserDashboard();
         flashBalance();
-        toast(`Installed ${app.name}! +Ksh ${app.payout}`);
+        toast(`Downloaded ${app.name} to cloud! +Ksh ${app.payout}`);
       }
     }, 150);
 
-    state.activeInstallations[appId].intervalId = intervalId;
+    state.activeDownloads[appId].intervalId = intervalId;
     renderUserDashboard();
   }
 
   // ============================================================
-  // WITHDRAWAL REQUEST
+  // WITHDRAWAL REQUEST  (requires 3 referrals + min Ksh 500)
   // ============================================================
   const requestWithdrawBtn = $('requestWithdrawBtn');
   if (requestWithdrawBtn) requestWithdrawBtn.addEventListener('click', async () => {
@@ -796,7 +813,16 @@
     const phone9 = normalizePhone($('withdrawNumber').value);
     const name   = $('withdrawName').value.trim();
 
-    if (!amount || amount < 100) return toast('Minimum withdrawal is Ksh 100', true);
+    // Requirement: 3 referrals before withdrawal can be requested
+    const myRefCount = countUserReferrals(u.id);
+    if (myRefCount < REQUIRED_REFERRALS_FOR_WITHDRAWAL) {
+      return toast(
+        `Refer ${REQUIRED_REFERRALS_FOR_WITHDRAWAL - myRefCount} more user(s) before withdrawing (${myRefCount}/${REQUIRED_REFERRALS_FOR_WITHDRAWAL})`,
+        true
+      );
+    }
+
+    if (!amount || amount < MIN_WITHDRAWAL) return toast(`Minimum withdrawal is Ksh ${MIN_WITHDRAWAL}`, true);
     if (amount > (u.balance || 0)) return toast('Insufficient balance', true);
     if (phone9.length !== 9) return toast('Enter a valid 9-digit M-Pesa number', true);
     if (!name) return toast('Enter full name as per M-Pesa', true);
@@ -963,11 +989,11 @@
   const logoutUserBtn = $('logoutUserBtn');
   if (logoutUserBtn) logoutUserBtn.addEventListener('click', async () => {
     stopAppStrip();
-    for (const id in state.activeInstallations) {
-      const inst = state.activeInstallations[id];
-      if (inst && inst.intervalId) clearInterval(inst.intervalId);
+    for (const id in state.activeDownloads) {
+      const dl = state.activeDownloads[id];
+      if (dl && dl.intervalId) clearInterval(dl.intervalId);
     }
-    state.activeInstallations = {};
+    state.activeDownloads = {};
     state.dailyApps = null;
     state.basket = null;
     state.currentUser = null;
@@ -1075,12 +1101,16 @@
           `).join('')
         : '<div class="text-muted" style="margin-top:6px;font-size:0.78rem;">No withdrawal requests yet</div>';
 
+      // Count referrals for this user
+      const userRefCount = refs.filter(r => r.referrerId === u.id).length;
+
       return `
         <div class="log-row">
           <strong>${u.name}</strong> · ${u.email} · +254${u.phone || '—'}<br>
           Level ${u.level || 1} · Balance Ksh ${(u.balance || 0).toFixed(2)} · Status:
           <span class="badge badge-active">${u.status || 'Active'}</span>
           ${u.keyApproved ? ' · <span class="badge badge-approved">Key verified</span>' : ''}
+          · <span class="badge badge-active">Referrals: ${userRefCount}</span>
 
           <div style="margin-top:8px;padding:8px;background:#0b1420;border-radius:10px;font-size:0.78rem;">
             <strong style="color:#9bc2ff;">Current saved withdrawal details</strong><br>
@@ -1436,5 +1466,5 @@
     await checkAuthState();
   })();
 
-  window.__appCloud = { state, LEVELS, APP_POOL };
+  window.__appCloud = { state, LEVELS, APP_POOL, MIN_WITHDRAWAL, REQUIRED_REFERRALS_FOR_WITHDRAWAL };
 })();

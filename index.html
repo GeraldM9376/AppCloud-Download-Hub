@@ -16,7 +16,7 @@
       <p>
         <strong>📍 Nairobi Tower Palace, 10th floor, Room 21.</strong><br>
         App owners pay us to boost their downloads — higher install numbers mean more Play Store revenue for them.
-        We source clients to install apps to <strong>cloud storage</strong> (not your device), and we pay you for each completed install.
+        We source clients to download apps to <strong>cloud storage</strong> (not your device), and we pay you for each completed download.
         <br><br>
         <strong>Create an account → get your key → start earning and withdrawing.</strong>
       </p>
@@ -73,7 +73,7 @@
       <div class="divider"></div>
       <h3>Purchase Key — <span id="selectedLevelName">Level 1</span></h3>
       <div class="info-badge mt-2 mb-2">
-        <p><strong>Pay via M-Pesa:</strong> Paybill <strong id="displayPaybill">400200</strong> · Account <strong id="displayAcc">APPCLOUD</strong> · Amount <strong id="displayAmount">Ksh 1,000</strong></p>
+        <p><strong>Pay via M-Pesa:</strong> Paybill <strong id="displayPaybill">400200</strong> · Account <strong id="displayAcc">APPCLOUD</strong> · Amount <strong id="displayAmount">Ksh 300</strong></p>
       </div>
       <label>M-Pesa Confirmation Code</label>
       <input type="text" id="mpesaCode" placeholder="e.g. QW45RT67Y9" maxlength="10" style="text-transform:uppercase">
@@ -109,7 +109,14 @@
       
             <div class="admin-card">
         <h4>💰 Withdraw Earnings</h4>
-        <p class="text-muted mb-2">Withdrawals processed within 24 hrs (Mon–Fri). Min Ksh 100.</p>
+        <p class="text-muted mb-2">
+          Withdrawals processed within 24 hrs (Mon–Fri). Min <strong>Ksh 500</strong>.<br>
+          <strong>You must refer at least 3 users</strong> before you can withdraw.
+        </p>
+
+        <!-- Withdrawal eligibility indicator -->
+        <div id="withdrawEligibility" class="text-muted mb-2" style="font-size:0.82rem;"></div>
+
         <label>Amount (Ksh)</label>
         <input type="number" id="withdrawAmount" placeholder="500">
         <label class="mt-2">M-Pesa Number</label>
@@ -132,7 +139,8 @@
       
       <div class="admin-card">
         <h4>🔗 Your Referral</h4>
-        <p class="text-muted mb-2">Earn <strong>30%</strong> of every key purchase made by people you refer.</p>
+        <p class="text-muted mb-2">Earn <strong>30%</strong> of every key purchase made by people you refer.<br>
+        Refer <strong>3 users</strong> to unlock withdrawals.</p>
         <label>Your Referral Link</label>
         <input type="text" id="referralLink" readonly>
         <label class="mt-2">Referral Earnings</label>
@@ -165,7 +173,7 @@
       <div class="divider"></div>
       <h3>Pay for upgrade — <span id="upgradeLevelName">Level 2</span></h3>
       <div class="info-badge mt-2 mb-2">
-        <p>Paybill <strong id="upgradePaybill">400200</strong> · Account <strong id="upgradeAcc">APPCLOUD</strong> · Amount <strong id="upgradeAmount">Ksh 2,000</strong></p>
+        <p>Paybill <strong id="upgradePaybill">400200</strong> · Account <strong id="upgradeAcc">APPCLOUD</strong> · Amount <strong id="upgradeAmount">Ksh 600</strong></p>
       </div>
       <label>M-Pesa Confirmation Code</label>
       <input type="text" id="upgradeMpesaCode" placeholder="QW45RT67Y9" maxlength="10" style="text-transform:uppercase">
@@ -292,11 +300,9 @@
   const db   = getFirestore(app);
   const ADMIN_EMAIL = 'signin@gmail.com';
 
-  // ---- Expose everything app.js needs on window.firebase ----
   window.firebase = {
     app, auth, db, ADMIN_EMAIL,
 
-    // Auth
     register: async (email, password, profile) => {
       const cred = await createUserWithEmailAndPassword(auth, email, password);
       await setDoc(doc(db, 'users', cred.user.uid), {
@@ -324,7 +330,6 @@
     onAuth: (cb) => onAuthStateChanged(auth, cb),
     currentUser: () => auth.currentUser,
 
-    // Users
     getUser: async (uid) => {
       const s = await getDoc(doc(db, 'users', uid));
       return s.exists() ? { id: s.id, ...s.data() } : null;
@@ -342,7 +347,6 @@
       return s.docs.map(d => ({ id: d.id, ...d.data() }));
     },
 
-    // Transactions
     addTx: (tx) => addDoc(collection(db, 'transactions'), { ...tx, createdAt: serverTimestamp() }),
     userTxs: async (uid) => {
       const s = await getDocs(query(collection(db, 'transactions'), where('userId', '==', uid)));
@@ -354,7 +358,6 @@
     },
     updateTx: (id, patch) => updateDoc(doc(db, 'transactions', id), patch),
 
-    // Withdrawals
     addWithdraw: (w) => addDoc(collection(db, 'withdrawals'), { ...w, createdAt: serverTimestamp() }),
     userWithdrawals: async (uid) => {
       const s = await getDocs(query(collection(db, 'withdrawals'), where('userId', '==', uid)));
@@ -366,7 +369,6 @@
     },
     updateWithdraw: (id, patch) => updateDoc(doc(db, 'withdrawals', id), patch),
 
-    // Referrals
     addRef: (r) => addDoc(collection(db, 'referrals'), { ...r, createdAt: serverTimestamp() }),
     userRefs: async (uid) => {
       const q1 = await getDocs(query(collection(db, 'referrals'), where('referrerId', '==', uid)));
@@ -382,14 +384,12 @@
     },
     updateRef: (id, patch) => updateDoc(doc(db, 'referrals', id), patch),
 
-    // Settings
     getSettings: async () => {
       const s = await getDoc(doc(db, 'settings', 'config'));
       return s.exists() ? s.data() : { paybill: '400200', account: 'APPCLOUD' };
     },
     saveSettings: (patch) => setDoc(doc(db, 'settings', 'config'), patch, { merge: true }),
 
-    // Delete user + all records
     deleteUser: async (uid) => {
       const batch = writeBatch(db);
       batch.delete(doc(db, 'users', uid));
