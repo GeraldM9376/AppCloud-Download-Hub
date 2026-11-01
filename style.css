@@ -93,26 +93,26 @@ h4 {
 
 /* ---------- FORMS ---------- */
 input, select, textarea {
-  background: #111d30; /* Lightened background for visibility */
-  border: 1px solid #3b5a7e; /* Brighter border */
+  background: #111d30; 
+  border: 1px solid #3b5a7e; 
   border-radius: 40px;
   padding: 13px 18px;
   font-size: 0.92rem;
-  color: #ffffff; /* Fixed missing semicolon here */
+  color: #ffffff; 
   outline: none;
   width: 100%;
   transition: all 0.18s;
 }
 input:focus, select:focus, textarea:focus {
-  border-color: #6ba4f5; /* Brighter focus border */
+  border-color: #6ba4f5; 
   background: #16263d;
   box-shadow: 0 0 0 3px rgba(79, 138, 212, 0.25);
 }
-input::placeholder, textarea::placeholder { color: #7a96b8; } /* Brightened placeholder text */
+input::placeholder, textarea::placeholder { color: #7a96b8; } 
 
 label {
   font-size: 0.85rem; 
-  color: #b4c9e4; /* Brightened label text */
+  color: #b4c9e4; 
   margin-bottom: 6px; 
   display: block;
   font-weight: 500; 
